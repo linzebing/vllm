@@ -84,6 +84,9 @@ class ModelOutput:
     1. The output tensors are ready and we can pythonize them immediately.
     2. The output tensors are not ready and we need to wait for the event to be
     ready.
+    A second CUDA event, ``copy_complete_event``, tracks completion of the
+    GPU->CPU copy used during Pythonization so that asynchronous loops know when
+    ``pinned_sampled_token_buffer`` can be reused.
     """
     sampler_output: SamplerOutput
     sampler_output_ready_event: torch.cuda.Event
@@ -92,6 +95,8 @@ class ModelOutput:
     # On-device tensor containing the logprobs of each token.
     logprobs: Optional["torch.Tensor"] = None
     pythonization_cache: Optional[PythonizationCache] = None
+    # Event signaling completion of the GPU->CPU copy of sampled tokens.
+    copy_complete_event: Optional[torch.cuda.Event] = None
 
     def pythonize(self, input_metadata: "StatefulModelInput",
                   copy_stream: torch.cuda.Stream,
@@ -122,16 +127,36 @@ class ModelOutput:
         the sampler output is not yet ready, will not erase self.logprobs.)
         """
         assert self.sampled_token_ids is not None
-        if not blocking and not self.sampler_output_ready_event.query():
-            return False
+        if self.copy_complete_event is None:
+            if not blocking and not self.sampler_output_ready_event.query():
+                return False
+            if blocking:
+                self.sampler_output_ready_event.synchronize()
+
+            self.copy_complete_event = torch.cuda.Event()
+            with torch.cuda.stream(copy_stream):
+                _pythonize_sampler_output(
+                    input_metadata,
+                    self.sampler_output,
+                    pinned_sampled_token_buffer,
+                    self.sampled_token_ids,
+                    self.logprobs,
+                    self.pythonization_cache,
+                    copy_complete_event=self.copy_complete_event,
+                )
+            if not blocking:
+                return False
 
         if blocking:
-            self.sampler_output_ready_event.synchronize()
-        with torch.cuda.stream(copy_stream):
-            _pythonize_sampler_output(input_metadata, self.sampler_output,
-                                      pinned_sampled_token_buffer,
-                                      self.sampled_token_ids, self.logprobs,
-                                      self.pythonization_cache)
+            self.copy_complete_event.synchronize()
+        elif not self.copy_complete_event.query():
+            return False
+
+        _pythonize_sampler_output(input_metadata, self.sampler_output,
+                                  pinned_sampled_token_buffer,
+                                  self.sampled_token_ids, self.logprobs,
+                                  self.pythonization_cache)
+        self.copy_complete_event = None
 
         # Erase the logprobs GPU-side tensor.
         # Note that although _pythonize_sampler_output() runs in its
@@ -733,6 +758,7 @@ def _pythonize_sampler_output(
     sampled_token_ids: torch.Tensor,
     logprobs_tensor: Optional[torch.Tensor],
     cache: Optional[PythonizationCache],
+    copy_complete_event: Optional[torch.cuda.Event] = None,
 ) -> None:
     """ This function is only called when the output tensors are ready.
     See [`ModelOutput`][vllm.worker.multi_step_model_runner.ModelOutput].
@@ -749,8 +775,12 @@ def _pythonize_sampler_output(
                                          (receives copy of
                                          GPU-side token buffer.)
       sampled_token_ids: GPU-side token buffer
-      logprobs_tensor: GPU-side tensor containing 
+      logprobs_tensor: GPU-side tensor containing
                        logprobs computed during sampling
+      copy_complete_event: if provided, the function only performs the
+        asynchronous GPU->CPU copy and records the event on the current
+        stream. No Pythonization is done until the caller waits on this
+        event and invokes this function again without the event.
     """
 
     assert model_input.frozen_model_input is not None
@@ -798,11 +828,16 @@ def _pythonize_sampler_output(
         sample_idx_tensor = torch.tensor(
             [sdx for sg in seq_groups for sdx in sg.sample_indices])
         pinned_buffer = pinned_buffer.copy_(
-            sampled_token_ids[sample_idx_tensor, :], non_blocking=False)
+            sampled_token_ids[sample_idx_tensor, :], non_blocking=True)
     else:
         # CPU GPU sync
         pinned_buffer = pinned_buffer.copy_(sampled_token_ids,
-                                            non_blocking=False)
+                                            non_blocking=True)
+
+    if copy_complete_event is not None:
+        # Record the completion of the asynchronous GPU->CPU copy.
+        copy_complete_event.record(torch.cuda.current_stream())
+        return
 
     # this will not block as the tensors are already on CPU
     samples_list = pinned_buffer.tolist()
