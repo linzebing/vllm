@@ -183,20 +183,24 @@ class SimpleConnector(KVConnectorBase):
 
             current_tokens = input_tokens_tensor[start_pos:end_pos]
 
-            keys, values = [], []
+            current_slot_mapping = slot_mapping_flat[start_pos:end_pos]
 
-            for layer_id in range(start_layer, end_layer):
-                kv_cache = kv_caches[layer_id - start_layer]
+            num_layers = end_layer - start_layer
+            slen = current_slot_mapping.numel()
+
+            keys = torch.empty(
+                (num_layers, slen, num_heads, head_size),
+                device=kv_caches[0].device,
+                dtype=kv_caches[0].dtype,
+            )
+            values = torch.empty_like(keys)
+
+            for layer_offset in range(num_layers):
+                kv_cache = kv_caches[layer_offset]
                 key_cache, value_cache = self.kv_helper.get_kv_from_cache(
                     kv_cache, num_heads, head_size)
-
-                current_slot_mapping = slot_mapping_flat[start_pos:end_pos]
-
-                keys.append(key_cache[current_slot_mapping].unsqueeze(0))
-                values.append(value_cache[current_slot_mapping].unsqueeze(0))
-
-            keys = torch.cat(keys, dim=0)
-            values = torch.cat(values, dim=0)
+                keys[layer_offset] = key_cache[current_slot_mapping]
+                values[layer_offset] = value_cache[current_slot_mapping]
 
             self.insert(current_tokens,
                         torch.ones_like(current_tokens,
