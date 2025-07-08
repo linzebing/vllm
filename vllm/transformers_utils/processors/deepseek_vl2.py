@@ -205,19 +205,13 @@ class DeepseekVLV2Processor(ProcessorMixin):
         sft_format = prompt
         tokenized_str, images_list, images_seq_mask, images_spatial_crop, num_image_tokens = self.tokenize_with_images(
             sft_format, images, bos=True, eos=True, cropping=len(images) <= 2)
-        masked_tokenized_str = []
-        for token_index in tokenized_str:
-            if token_index != self.image_token_id:
-                masked_tokenized_str.append(token_index)
-            else:
-                masked_tokenized_str.append(self.ignore_id)
 
-        assert len(tokenized_str) == len(images_seq_mask) == len(masked_tokenized_str), \
-            (f"tokenized_str's length {len(tokenized_str)}, input_ids' length {len(masked_tokenized_str)}, "
+        assert len(tokenized_str) == len(images_seq_mask), \
+            (f"tokenized_str's length {len(tokenized_str)} and "
              f"imags_seq_mask's length {len(images_seq_mask)}, are not equal")
 
         input_ids = torch.LongTensor(tokenized_str)
-        target_ids = torch.LongTensor(masked_tokenized_str)
+        target_ids = torch.where(tokenized_str == self.image_token_id, self.ignore_id, input_ids)
         images_seq_mask = torch.tensor(images_seq_mask, dtype=torch.bool)
 
         # set input_ids < 0 | input_ids == self.image_token_id as ignore_id
