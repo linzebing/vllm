@@ -134,6 +134,7 @@ class AsyncLLM(EngineClient):
             self.logger_manager.log_engine_initialized()
 
         self.output_handler: Optional[asyncio.Task] = None
+
         try:
             # Start output handler eagerly if we are in the asyncio eventloop.
             asyncio.get_running_loop()

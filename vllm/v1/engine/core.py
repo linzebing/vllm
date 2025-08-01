@@ -26,7 +26,8 @@ from vllm.transformers_utils.config import (
     maybe_register_config_serialize_by_value)
 from vllm.utils import (decorate_logs, make_zmq_socket,
                         resolve_obj_by_qualname, set_process_title)
-from vllm.v1.core.kv_cache_utils import (get_kv_cache_config,
+from vllm.v1.core.kv_cache_utils import (get_hash_fn_by_name,
+                                         get_kv_cache_config,
                                          unify_kv_cache_configs)
 from vllm.v1.core.sched.interface import SchedulerInterface
 from vllm.v1.core.sched.output import SchedulerOutput
@@ -41,7 +42,8 @@ from vllm.v1.executor.abstract import Executor
 from vllm.v1.kv_cache_interface import KVCacheConfig
 from vllm.v1.metrics.stats import SchedulerStats
 from vllm.v1.outputs import ModelRunnerOutput
-from vllm.v1.request import Request, RequestStatus
+from vllm.v1.request import (Request, RequestStatus, hash_request_tokens,
+                             init_none_hash)
 from vllm.v1.serial_utils import MsgpackDecoder, MsgpackEncoder
 from vllm.v1.structured_output import StructuredOutputManager
 from vllm.version import __version__ as VLLM_VERSION
@@ -70,6 +72,9 @@ class EngineCore:
         self.vllm_config = vllm_config
         logger.info("Initializing a V1 LLM engine (v%s) with config: %s",
                     VLLM_VERSION, vllm_config)
+        self.caching_hash_fn = get_hash_fn_by_name(
+            vllm_config.cache_config.prefix_caching_hash_algo)
+        init_none_hash(self.caching_hash_fn)
 
         self.log_stats = log_stats
 
@@ -424,6 +429,11 @@ class EngineCore:
             # grammar compilation is async. Scheduler always checks grammar
             # compilation status before scheduling request.
             self.structured_output_manager.grammar_init(req)
+
+        cache_config = self.vllm_config.cache_config
+        if cache_config.enable_prefix_caching:
+            req.precomputed_block_hashes = hash_request_tokens(
+                self.caching_hash_fn, cache_config.block_size, req)
         return req, request.current_wave
 
 
