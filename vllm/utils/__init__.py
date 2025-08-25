@@ -3235,7 +3235,7 @@ def check_use_alibi(model_config: ModelConfig) -> bool:
                       and getattr(cfg.attn_config, "alibi", False)))))
 
 
-def sha256(input) -> int:
+def sha256(input) -> bytes:
     """Hash any picklable Python object using SHA-256.
 
     The input is serialized using pickle before hashing, which allows
@@ -3246,14 +3246,13 @@ def sha256(input) -> int:
         input: Any picklable Python object.
 
     Returns:
-        An integer representing the SHA-256 hash of the serialized input.
+        Bytes representing the SHA-256 hash of the serialized input.
     """
     input_bytes = pickle.dumps(input, protocol=pickle.HIGHEST_PROTOCOL)
-    return int.from_bytes(hashlib.sha256(input_bytes).digest(),
-                          byteorder="big")
+    return hashlib.sha256(input_bytes).digest()
 
 
-def sha256_cbor_64bit(input) -> int:
+def sha256_cbor_64bit(input) -> bytes:
     """
     Hash objects using CBOR serialization and SHA-256, then truncate to 64bits.
 
@@ -3266,14 +3265,10 @@ def sha256_cbor_64bit(input) -> int:
             Custom classes must implement CBOR serialization methods.
 
     Returns:
-        An integer in the range [0, 2^64-1] representing the lower 64 bits
-        of the SHA-256 hash of the CBOR serialized input.
+        Bytes representing the SHA-256 hash of the CBOR serialized input.
     """
     input_bytes = cbor2.dumps(input, canonical=True)
-    full_hash = int.from_bytes(hashlib.sha256(input_bytes).digest(),
-                               byteorder="big")
-
-    return full_hash & ((1 << 64) - 1)
+    return hashlib.sha256(input_bytes).digest()
 
 
 def get_hash_fn_by_name(hash_fn_name: str) -> Callable:

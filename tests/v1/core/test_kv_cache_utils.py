@@ -84,7 +84,7 @@ def new_sliding_window_spec(block_size=16,
                              sliding_window=sliding_window)
 
 
-@pytest.mark.parametrize("hash_fn", [sha256, sha256_cbor_64bit, hash])
+@pytest.mark.parametrize("hash_fn", [sha256, sha256_cbor_64bit])
 def test_none_hash(monkeypatch, hash_fn):
     import vllm.v1.core.kv_cache_utils
 
@@ -94,8 +94,8 @@ def test_none_hash(monkeypatch, hash_fn):
         reloaded_kv_cache_utils = importlib.reload(vllm.v1.core.kv_cache_utils)
         reloaded_kv_cache_utils.init_none_hash(hash_fn)
         assert reloaded_kv_cache_utils.NONE_HASH is not None
-        assert isinstance(reloaded_kv_cache_utils.NONE_HASH, int)
-        assert reloaded_kv_cache_utils.NONE_HASH != 0
+        assert isinstance(reloaded_kv_cache_utils.NONE_HASH, bytes)
+        assert reloaded_kv_cache_utils.NONE_HASH != b""
 
     # case 2: PYTHONHASHSEED is set, use the seed and hash_fn
     with monkeypatch.context() as m:
@@ -103,12 +103,11 @@ def test_none_hash(monkeypatch, hash_fn):
         reloaded_kv_cache_utils = importlib.reload(vllm.v1.core.kv_cache_utils)
         reloaded_kv_cache_utils.init_none_hash(hash_fn)
         assert reloaded_kv_cache_utils.NONE_HASH is not None
-        assert isinstance(reloaded_kv_cache_utils.NONE_HASH, int)
+        assert isinstance(reloaded_kv_cache_utils.NONE_HASH, bytes)
         assert hash_fn('python hash seed') == reloaded_kv_cache_utils.NONE_HASH
 
 
 def test_kv_cache_block():
-    import vllm.v1.core.kv_cache_utils
 
     # Test KVCacheBlock initialization
     block = KVCacheBlock(block_id=0)
@@ -123,8 +122,7 @@ def test_kv_cache_block():
     assert block.ref_cnt == 0
 
     # Test block hash setting and resetting
-    block_hash = vllm.v1.core.kv_cache_utils.BlockHash(hash_value=123,
-                                                       token_ids=(1, 2, 3))
+    block_hash = b"abc:0"
     block.block_hash = block_hash
     assert block.block_hash == block_hash
 
@@ -403,26 +401,21 @@ def test_generate_block_hash_extra_keys_cache_salt():
     assert next_mm_idx == 1
 
 
-@pytest.mark.parametrize("hash_fn", [sha256, sha256_cbor_64bit, hash])
+@pytest.mark.parametrize("hash_fn", [sha256, sha256_cbor_64bit])
 def test_hash_block_tokens(hash_fn):
-    import vllm.v1.core.kv_cache_utils
     init_none_hash(hash_fn)
-    parent_block_hash = 123
+    parent_block_hash = b"123"
     curr_block_token_ids = (1, 2, 3)
     extra_keys = ("key1", "key2")
 
     block_hash = hash_block_tokens(hash_fn, parent_block_hash,
                                    curr_block_token_ids, extra_keys)
-    assert isinstance(block_hash, vllm.v1.core.kv_cache_utils.BlockHash)
-    assert block_hash.hash_value == hash_fn(
-        (parent_block_hash, curr_block_token_ids, extra_keys))
-    assert block_hash.token_ids == curr_block_token_ids
-    assert block_hash.extra_keys == extra_keys
+    expected = hash_fn((parent_block_hash, curr_block_token_ids, extra_keys))
+    assert block_hash == expected
 
 
-@pytest.mark.parametrize("hash_fn", [sha256, sha256_cbor_64bit, hash])
+@pytest.mark.parametrize("hash_fn", [sha256, sha256_cbor_64bit])
 def test_request_block_hasher(hash_fn):
-    import vllm.v1.core.kv_cache_utils
     init_none_hash(hash_fn)
     request = make_request(
         request_id="0",
@@ -438,19 +431,10 @@ def test_request_block_hasher(hash_fn):
 
     block_hashes = request.block_hashes
     assert len(block_hashes) == 2
-    assert isinstance(block_hashes[0], vllm.v1.core.kv_cache_utils.BlockHash)
-    assert isinstance(block_hashes[1], vllm.v1.core.kv_cache_utils.BlockHash)
-
-    # Check the first block
-    assert block_hashes[0].token_ids == (0, 1, 2)
-    assert block_hashes[0].extra_keys == ("hash1", )
-
-    # Check the second block
-    assert block_hashes[1].token_ids == (3, 4, 5)
-    assert block_hashes[1].extra_keys == ("hash2", )
+    assert isinstance(block_hashes[0], bytes)
 
 
-@pytest.mark.parametrize("hash_fn", [sha256, sha256_cbor_64bit, hash])
+@pytest.mark.parametrize("hash_fn", [sha256, sha256_cbor_64bit])
 def test_hash_tokens_different_mm_input(hash_fn):
     init_none_hash(hash_fn)
 
@@ -480,7 +464,7 @@ def test_hash_tokens_different_mm_input(hash_fn):
     assert block_hashes1[1] != block_hashes2[1]
 
 
-@pytest.mark.parametrize("hash_fn", [sha256, sha256_cbor_64bit, hash])
+@pytest.mark.parametrize("hash_fn", [sha256, sha256_cbor_64bit])
 def test_hash_request_tokens_no_mm_inputs(hash_fn):
     init_none_hash(hash_fn)
 
@@ -496,10 +480,6 @@ def test_hash_request_tokens_no_mm_inputs(hash_fn):
     block_hashes = request.block_hashes
 
     assert len(block_hashes) == 2
-    assert block_hashes[0].token_ids == (0, 1, 2)
-    assert block_hashes[0].extra_keys is None
-    assert block_hashes[1].token_ids == (3, 4, 5)
-    assert block_hashes[1].extra_keys is None
 
 
 def test_metrics():

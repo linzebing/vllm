@@ -6,7 +6,7 @@ import os
 from collections import defaultdict, deque
 from collections.abc import Iterable, Sequence
 from dataclasses import astuple, dataclass
-from typing import Any, Callable, NamedTuple, Optional
+from typing import Any, Callable, Optional
 
 from vllm.config import VllmConfig
 from vllm.logger import init_logger
@@ -20,42 +20,15 @@ from vllm.v1.request import Request
 
 logger = init_logger(__name__)
 
-
-class BlockHash(NamedTuple):
-    """Hash value of a block (int), the token IDs in the block, and extra keys.
-    We keep a tuple of token IDs and extra keys to reduce the likelihood of
-    hash collisions when the hash value is the same. By using SHA256 however,
-    hash collisions are practically impossible.
-    """
-    # Hash value of the block in an integer.
-    hash_value: int
-    # Token IDs in the block.
-    token_ids: tuple[int, ...]
-    # Extra keys for the block.
-    extra_keys: Optional[Any] = None
-
-
-class BlockHashWithGroupId(NamedTuple):
-    # The hash value for the contents (e.g., token_ids) of a block without group
-    # ID. The value is the same for blocks representing the same tokens but for
-    # different groups.
-    block_hash: BlockHash
-    # The KV cache group ID.
-    group_id: int
-
-    def get_hash_value(self) -> int:
-        return self.block_hash.hash_value
-
-
 # The hash seed for the first block of any prefix block sequence.
 #
 # We use a random value to avoid hash collisions or PYTHONHASHSEED environment
-# variable if set such that processes can share the seed if needed.
-# This aligns with the behavior of Python's hash() function, which also uses
-# a random seed if PYTHONHASHSEED is not set.
+# variable if set such that processes can share the seed if needed. This aligns
+# with the behavior of Python's hash() function, which also uses a random seed
+# if PYTHONHASHSEED is not set.
 #
 # The function `init_none_hash` initializes this variable globally.
-NONE_HASH: int
+NONE_HASH: bytes
 
 
 def init_none_hash(hash_fn: Callable):
@@ -69,8 +42,10 @@ def init_none_hash(hash_fn: Callable):
             "Consider setting PYTHONHASHSEED to a fixed value for "
             "reproducibility.")
 
-    NONE_HASH = (int.from_bytes(os.urandom(32), byteorder="big")
-                 if hash_seed is None else hash_fn(hash_seed))
+    if hash_seed is None:
+        NONE_HASH = hash_fn(os.urandom(32))
+    else:
+        NONE_HASH = hash_fn(hash_seed)
 
 
 class PrefixCachingMetrics:
@@ -142,9 +117,8 @@ class KVCacheBlock:
     block_id: int
     # Reference count.
     ref_cnt: int = 0
-    # The hash of the block composed of (block hash, tuple of token IDs).
-    # It is only available when the block is full.
-    _block_hash: Optional[BlockHashWithGroupId] = None
+    # The hash of the block, only available when the block is full.
+    _block_hash: Optional[bytes] = None
 
     # Used to construct a doubly linked list for free blocks.
     # These two attributes should only be manipulated by FreeKVCacheBlockQueue.
@@ -155,11 +129,11 @@ class KVCacheBlock:
     is_null: bool = False
 
     @property
-    def block_hash(self) -> Optional[BlockHashWithGroupId]:
+    def block_hash(self) -> Optional[bytes]:
         return self._block_hash
 
     @block_hash.setter
-    def block_hash(self, block_hash: BlockHashWithGroupId):
+    def block_hash(self, block_hash: bytes):
         assert self.block_hash is None, (
             "The block already has a hash. This should not happen.")
         self._block_hash = block_hash
@@ -177,7 +151,7 @@ class KVCacheBlock:
                          if self.next_free_block else None)
         return (f"KVCacheBlock(block_id={self.block_id}, "
                 f"ref_cnt={self.ref_cnt}, "
-                f"_block_hash={self._block_hash}, "
+                f"_block_hash={self._block_hash!r}, "
                 f"prev_free_block={prev_block_id}, "
                 f"next_free_block={next_block_id})")
 
@@ -516,23 +490,20 @@ def generate_block_hash_extra_keys(
     return tuple(extra_keys), new_start_mm_idx
 
 
-def hash_block_tokens(
-        hash_function: Callable,
-        parent_block_hash: Optional[int],
-        curr_block_token_ids: Sequence[int],
-        extra_keys: Optional[tuple[Any, ...]] = None) -> BlockHash:
+def hash_block_tokens(hash_function: Callable,
+                      parent_block_hash: Optional[bytes],
+                      curr_block_token_ids: Sequence[int],
+                      extra_keys: Optional[tuple[Any, ...]] = None) -> bytes:
     """Computes a hash value corresponding to the contents of a block and
     the contents of the preceding block(s). The hash value is used for
     prefix caching. We use LRU cache for this function to avoid recomputing
     hash values for the same block contents.
-
     Args:
         parent_block_hash: The hash of the parent block. None
             if this is the first block.
         curr_block_token_ids: A list of token ids in the current
             block. The current block is assumed to be full.
         extra_keys: Extra keys for the block.
-
     Returns:
         The hash value of the block and the token ids in the block.
         The entire tuple is used as the hash key of the block.
@@ -541,30 +512,19 @@ def hash_block_tokens(
         parent_block_hash = NONE_HASH
 
     curr_block_token_ids_tuple = tuple(curr_block_token_ids)
-    return BlockHash(
-        hash_function(
-            (parent_block_hash, curr_block_token_ids_tuple, extra_keys)),
-        curr_block_token_ids_tuple, extra_keys)
+    return hash_function(
+        (parent_block_hash, curr_block_token_ids_tuple, extra_keys))
 
 
 def get_request_block_hasher(
     block_size: int,
     caching_hash_fn: Callable[[Any],
-                              int]) -> Callable[[Request], list[BlockHash]]:
+                              bytes]) -> Callable[[Request], list[bytes]]:
     """
     Returns a function which computes the list of un-computed block hashes
-    of a request.
+    of a request."""
 
-    Each request holds a list of its block hashes (request.block_hashes).
-    When a request is created, it calls the below function to compute
-    the hashes of all full blocks of the request's initial tokens.
-    The hashes are then stored in request.block_hashes.
-    Later, whenever new tokens are appended to the request, it calls
-    the below function again to compute any new full blocks of tokens.
-    The returned new hashes are appended to request.block_hashes.
-    """
-
-    def request_block_hasher(request: Request) -> list[BlockHash]:
+    def request_block_hasher(request: Request) -> list[bytes]:
         start_token_idx = len(request.block_hashes) * block_size
         num_tokens = request.num_tokens
 
@@ -576,9 +536,9 @@ def get_request_block_hasher(
             # last mm input.
             curr_mm_idx = -1
 
-        prev_block_hash_value = request.block_hashes[-1].hash_value \
+        prev_block_hash_value = request.block_hashes[-1] \
             if request.block_hashes else None
-        new_block_hashes: list[BlockHash] = []
+        new_block_hashes: list[bytes] = []
         while True:
             end_token_idx = start_token_idx + block_size
             if end_token_idx > num_tokens:
@@ -597,7 +557,7 @@ def get_request_block_hasher(
 
             new_block_hashes.append(block_hash)
             start_token_idx += block_size
-            prev_block_hash_value = block_hash.hash_value
+            prev_block_hash_value = block_hash
 
         return new_block_hashes
 
@@ -1152,3 +1112,11 @@ def unify_kv_cache_configs(kv_cache_configs: list[KVCacheConfig]):
         kv_cache_config.num_blocks = min_num_blocks
 
     return kv_cache_configs
+
+
+def get_block_hash_with_group_id(block_hash: bytes, group_id: int) -> bytes:
+    return block_hash + b":" + group_id.to_bytes(4, "little")
+
+
+def strip_group_id(block_hash_with_group_id: bytes) -> bytes:
+    return block_hash_with_group_id.rsplit(b':', 1)[0]
