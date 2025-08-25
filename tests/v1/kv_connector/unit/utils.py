@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import tempfile
 from collections import defaultdict
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 import torch
 
@@ -126,12 +126,11 @@ def create_request(request_id: int,
                    do_remote_prefill: bool = False,
                    use_all_1s_for_prompt_tokens: bool = False,
                    num_remote_blocks: int = 3,
-                   block_size: int = 16,
-                   hash_fn: Callable = hash) -> Request:
+                   block_size: int = 16) -> Request:
     """Make dummy request for testing."""
     global _none_hash_initialized
     if not _none_hash_initialized:
-        init_none_hash(hash)
+        init_none_hash()
         _none_hash_initialized = True
 
     kv_transfer_params: Optional[dict[str, Any]] = None
@@ -166,7 +165,7 @@ def create_request(request_id: int,
         multi_modal_placeholders=None,
         multi_modal_hashes=None,
         eos_token_id=EOS_TOKEN_ID,
-        block_hasher=get_request_block_hasher(block_size, hash_fn),
+        block_hasher=get_request_block_hasher(block_size),
     )
     req.kv_transfer_params = kv_transfer_params
     return req
