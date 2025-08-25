@@ -72,7 +72,7 @@ class KVCacheBlocks:
         assert len(self.blocks) == 1, "Only one group is supported"
         return [
             block.block_id for block in self.blocks[0]
-            if block.block_hash is None
+            if block.block_hash_key is None
         ]
 
     def new_empty(self) -> "KVCacheBlocks":

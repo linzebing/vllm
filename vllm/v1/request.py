@@ -10,6 +10,7 @@ from vllm.multimodal.inputs import MultiModalKwargsItem, PlaceholderRange
 from vllm.pooling_params import PoolingParams
 from vllm.sampling_params import SamplingParams
 from vllm.utils import is_list_of
+from vllm.v1.core.kv_cache_utils import BlockHash
 from vllm.v1.engine import (EngineCoreEvent, EngineCoreEventType,
                             EngineCoreRequest, FinishReason)
 from vllm.v1.structured_output.request import StructuredOutputRequest
@@ -17,7 +18,6 @@ from vllm.v1.utils import ConstantList
 
 if TYPE_CHECKING:
     from vllm.lora.request import LoRARequest
-    from vllm.v1.core.kv_cache_utils import BlockHash
 
 
 class Request:
@@ -38,8 +38,7 @@ class Request:
         structured_output_request: Optional["StructuredOutputRequest"] = None,
         cache_salt: Optional[str] = None,
         priority: int = 0,
-        block_hasher: Optional[Callable[["Request"],
-                                        list["BlockHash"]]] = None,
+        block_hasher: Optional[Callable[["Request"], list[BlockHash]]] = None,
     ) -> None:
         self.request_id = request_id
         self.client_index = client_index
@@ -115,8 +114,9 @@ class Request:
         self.num_nans_in_logits = 0
 
         self.block_hashes: list[BlockHash] = []
-        self.get_hash_new_full_blocks: Optional[Callable[
-            [], list[BlockHash]]] = None
+        self.get_hash_new_full_blocks: Optional[
+            Callable[[], list[BlockHash]]
+        ] = None
         if block_hasher is not None:
             self.get_hash_new_full_blocks = partial(block_hasher, self)
             self.block_hashes = self.get_hash_new_full_blocks()
@@ -124,7 +124,7 @@ class Request:
     @classmethod
     def from_engine_core_request(
         cls, request: EngineCoreRequest,
-        block_hasher: Optional[Callable[["Request"], list["BlockHash"]]]
+        block_hasher: Optional[Callable[["Request"], list[BlockHash]]]
     ) -> "Request":
         if request.mm_kwargs is not None:
             mm_kwargs_lst = list(request.mm_kwargs)
