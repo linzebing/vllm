@@ -129,10 +129,10 @@ def create_requests(
 ) -> list[Request]:
     global _none_hash_initialized
     if not _none_hash_initialized:
-        init_none_hash(hash)
+        init_none_hash()
         _none_hash_initialized = True
 
-    block_hasher = get_request_block_hasher(block_size, hash)
+    block_hasher = get_request_block_hasher(block_size)
     sampling_params = SamplingParams(ignore_eos=False,
                                      max_tokens=max_tokens,
                                      stop_token_ids=stop_token_ids,
