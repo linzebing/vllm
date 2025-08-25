@@ -37,7 +37,7 @@ class Request:
         structured_output_request: Optional["StructuredOutputRequest"] = None,
         cache_salt: Optional[str] = None,
         priority: int = 0,
-        block_hasher: Optional[Callable[["Request"], list[str]]] = None,
+        block_hasher: Optional[Callable[["Request"], list[bytes]]] = None,
     ) -> None:
         self.request_id = request_id
         self.client_index = client_index
@@ -112,9 +112,9 @@ class Request:
         # indicates that the output is corrupted
         self.num_nans_in_logits = 0
 
-        self.block_hashes: list[str] = []
+        self.block_hashes: list[bytes] = []
         self.get_hash_new_full_blocks: Optional[Callable[
-            [], list[str]]] = None
+            [], list[bytes]]] = None
         if block_hasher is not None:
             self.get_hash_new_full_blocks = partial(block_hasher, self)
             self.block_hashes = self.get_hash_new_full_blocks()
@@ -122,7 +122,7 @@ class Request:
     @classmethod
     def from_engine_core_request(
         cls, request: EngineCoreRequest,
-        block_hasher: Optional[Callable[["Request"], list[str]]]
+        block_hasher: Optional[Callable[["Request"], list[bytes]]]
     ) -> "Request":
         if request.mm_kwargs is not None:
             mm_kwargs_lst = list(request.mm_kwargs)

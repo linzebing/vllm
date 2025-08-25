@@ -32,7 +32,7 @@ logger = init_logger(__name__)
 # if PYTHONHASHSEED is not set.
 #
 # The function `init_none_hash` initializes this variable globally.
-NONE_HASH: str
+NONE_HASH: bytes
 
 
 def init_none_hash() -> None:
@@ -41,9 +41,9 @@ def init_none_hash() -> None:
 
     hash_seed = os.getenv("PYTHONHASHSEED")
     if hash_seed is None:
-        NONE_HASH = hashlib.sha256(os.urandom(32)).hexdigest()
+        NONE_HASH = hashlib.sha256(os.urandom(32)).digest()
     else:
-        NONE_HASH = hashlib.sha256(hash_seed.encode()).hexdigest()
+        NONE_HASH = hashlib.sha256(hash_seed.encode()).digest()
 
 
 class PrefixCachingMetrics:
@@ -117,7 +117,7 @@ class KVCacheBlock:
     ref_cnt: int = 0
     # The hash of the block composed of (block hash, kv cache group id).
     # It is only available when the block is full.
-    _block_hash: Optional[str] = None
+    _block_hash: Optional[bytes] = None
 
     # Used to construct a doubly linked list for free blocks.
     # These two attributes should only be manipulated by FreeKVCacheBlockQueue.
@@ -128,11 +128,11 @@ class KVCacheBlock:
     is_null: bool = False
 
     @property
-    def block_hash(self) -> Optional[str]:
+    def block_hash(self) -> Optional[bytes]:
         return self._block_hash
 
     @block_hash.setter
-    def block_hash(self, block_hash: str):
+    def block_hash(self, block_hash: bytes):
         assert self.block_hash is None, (
             "The block already has a hash. This should not happen.")
         self._block_hash = block_hash
@@ -490,14 +490,14 @@ def generate_block_hash_extra_keys(
 
 
 def hash_block_tokens(
-        parent_block_hash: Optional[str],
+        parent_block_hash: Optional[bytes],
         curr_block_token_ids: Sequence[int],
-        extra_keys: Optional[tuple[Any, ...]] = None) -> str:
+        extra_keys: Optional[tuple[Any, ...]] = None) -> bytes:
     """Compute a SHA-256 hash for a block of tokens.
 
     The hash is deterministically derived from the previous block's hash,
     the token ids of the current block, and any extra keys. The resulting
-    value is returned as a hexadecimal string.
+    value is returned as raw SHA-256 bytes.
 
     Args:
         parent_block_hash: The hash of the parent block. ``None`` if this is
@@ -507,7 +507,7 @@ def hash_block_tokens(
         extra_keys: Extra keys for the block.
 
     Returns:
-        A SHA-256 hexadecimal string representing the block's contents.
+        Raw SHA-256 bytes representing the block's contents.
     """
     if not parent_block_hash:
         parent_block_hash = NONE_HASH
@@ -517,15 +517,16 @@ def hash_block_tokens(
         (parent_block_hash, curr_block_token_ids_tuple, extra_keys),
         canonical=True,
     )
-    return hashlib.sha256(input_bytes).hexdigest()
+    return hashlib.sha256(input_bytes).digest()
 
 
 def get_request_block_hasher(
     block_size: int,
-) -> Callable[[Request], list[str]]:
+
+) -> Callable[[Request], list[bytes]]:
     """Return a function that computes uncomputed block hashes for a request."""
 
-    def request_block_hasher(request: Request) -> list[str]:
+    def request_block_hasher(request: Request) -> list[bytes]:
         start_token_idx = len(request.block_hashes) * block_size
         num_tokens = request.num_tokens
 
@@ -539,7 +540,7 @@ def get_request_block_hasher(
 
         prev_block_hash_value = request.block_hashes[-1] \
             if request.block_hashes else None
-        new_block_hashes: list[str] = []
+        new_block_hashes: list[bytes] = []
         while True:
             end_token_idx = start_token_idx + block_size
             if end_token_idx > num_tokens:

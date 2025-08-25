@@ -165,7 +165,7 @@ class KVCacheCoordinator(ABC):
     @abstractmethod
     def find_longest_cache_hit(
         self,
-        block_hashes: list[str],
+        block_hashes: list[bytes],
         max_cache_hit_length: int,
     ) -> tuple[tuple[list[KVCacheBlock], ...], int]:
         pass
@@ -191,7 +191,7 @@ class KVCacheCoordinatorNoPrefixCache(KVCacheCoordinator):
 
     def find_longest_cache_hit(
         self,
-        block_hashes: list[str],
+        block_hashes: list[bytes],
         max_cache_hit_length: int,
     ) -> tuple[tuple[list[KVCacheBlock], ...], int]:
         blocks: tuple[list[KVCacheBlock], ...] = tuple(
@@ -219,7 +219,7 @@ class UnitaryKVCacheCoordinator(KVCacheCoordinator):
 
     def find_longest_cache_hit(
         self,
-        block_hashes: list[str],
+        block_hashes: list[bytes],
         max_cache_hit_length: int,
     ) -> tuple[tuple[list[KVCacheBlock], ...], int]:
         hit_blocks = self.single_type_managers[0].find_longest_cache_hit(
@@ -314,7 +314,7 @@ class HybridKVCacheCoordinator(KVCacheCoordinator):
 
     def find_longest_cache_hit(
         self,
-        block_hashes: list[str],
+        block_hashes: list[bytes],
         max_cache_hit_length: int,
     ) -> tuple[tuple[list[KVCacheBlock], ...], int]:
         """

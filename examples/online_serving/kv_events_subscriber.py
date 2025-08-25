@@ -22,15 +22,15 @@ class KVCacheEvent(
 
 
 class BlockStored(KVCacheEvent):
-    block_hashes: list[str]
-    parent_block_hash: Optional[str]
+    block_hashes: list[bytes]
+    parent_block_hash: Optional[bytes]
     token_ids: list[int]
     block_size: int
     lora_id: Optional[int]
 
 
 class BlockRemoved(KVCacheEvent):
-    block_hashes: list[str]
+    block_hashes: list[bytes]
 
 
 class AllBlocksCleared(KVCacheEvent):

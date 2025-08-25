@@ -3,8 +3,8 @@
 import importlib
 from typing import Optional
 
-import hashlib
 import cbor2
+import hashlib
 import pytest
 import torch
 
@@ -94,16 +94,16 @@ def test_none_hash(monkeypatch):
         reloaded = importlib.reload(vllm.v1.core.kv_cache_utils)
         reloaded.init_none_hash()
         assert reloaded.NONE_HASH is not None
-        assert isinstance(reloaded.NONE_HASH, str)
-        assert reloaded.NONE_HASH != ""
+        assert isinstance(reloaded.NONE_HASH, bytes)
+        assert reloaded.NONE_HASH != b""
 
     # case 2: PYTHONHASHSEED is set, use the seed
     with monkeypatch.context() as m:
         m.setenv('PYTHONHASHSEED', 'python hash seed')
         reloaded = importlib.reload(vllm.v1.core.kv_cache_utils)
         reloaded.init_none_hash()
-        expected = hashlib.sha256(b'python hash seed').hexdigest()
-        assert isinstance(reloaded.NONE_HASH, str)
+        expected = hashlib.sha256(b'python hash seed').digest()
+        assert isinstance(reloaded.NONE_HASH, bytes)
         assert reloaded.NONE_HASH == expected
 
 
@@ -123,7 +123,7 @@ def test_kv_cache_block():
     assert block.ref_cnt == 0
 
     # Test block hash setting and resetting
-    block_hash = "abc:0"
+    block_hash = b"abc:0"
     block.block_hash = block_hash
     assert block.block_hash == block_hash
 
@@ -404,7 +404,7 @@ def test_generate_block_hash_extra_keys_cache_salt():
 
 def test_hash_block_tokens():
     init_none_hash()
-    parent_block_hash = "123"
+    parent_block_hash = b"123"
     curr_block_token_ids = (1, 2, 3)
     extra_keys = ("key1", "key2")
 
@@ -412,7 +412,7 @@ def test_hash_block_tokens():
                                    extra_keys)
     expected = hashlib.sha256(
         cbor2.dumps((parent_block_hash, curr_block_token_ids, extra_keys),
-                    canonical=True)).hexdigest()
+                    canonical=True)).digest()
     assert block_hash == expected
 
 
@@ -431,6 +431,7 @@ def test_request_block_hasher():
 
     block_hashes = request.block_hashes
     assert len(block_hashes) == 2
+    assert isinstance(block_hashes[0], bytes)
 
 
 def test_hash_tokens_different_mm_input():

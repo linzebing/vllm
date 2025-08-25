@@ -54,8 +54,8 @@ class BlockPool:
         # if there is already an identical block in the cache. This is because
         # we want to make sure the allocated block IDs won't change so that
         # block tables are append-only.
-        # The key is a string ``"{hash}:{group_id}"``.
-        self.cached_block_hash_to_block: dict[str, dict[int, KVCacheBlock]] = (
+        # The key is bytes ``hash + b":" + str(group_id).encode()``.
+        self.cached_block_hash_to_block: dict[bytes, dict[int, KVCacheBlock]] = (
             defaultdict(dict))
 
         # To represent a placeholder block with block_id=0.
@@ -68,7 +68,7 @@ class BlockPool:
         self.kv_event_queue: list[KVCacheEvent] = []
 
     def get_cached_block(
-            self, block_hash: str,
+            self, block_hash: bytes,
             kv_cache_group_ids: list[int]) -> Optional[list[KVCacheBlock]]:
         """Get the cached block by the block hash for each group in 
         `kv_cache_group_ids`, or None if cache miss for any group.
@@ -83,7 +83,7 @@ class BlockPool:
         """
         cached_blocks = []
         for group_id in kv_cache_group_ids:
-            key = f"{block_hash}:{group_id}"
+            key = block_hash + b":" + str(group_id).encode()
             cached_blocks_one_group = self.cached_block_hash_to_block.get(key)
             if not cached_blocks_one_group:
                 return None
@@ -123,14 +123,14 @@ class BlockPool:
         assert len(request.block_hashes) >= num_full_blocks
         new_block_hashes = request.block_hashes[num_cached_blocks:]
 
-        new_hashes: Optional[list[str]] = ([] if self.enable_kv_cache_events
-                                           else None)
+        new_hashes: Optional[list[bytes]] = ([] if self.enable_kv_cache_events
+                                             else None)
         for i, blk in enumerate(new_full_blocks):
             assert blk.block_hash is None
             block_hash = new_block_hashes[i]
 
             # Update and added the full block to the cache.
-            key = f"{block_hash}:{kv_cache_group_id}"
+            key = block_hash + b":" + str(kv_cache_group_id).encode()
             blk.block_hash = key
             self.cached_block_hash_to_block[key][blk.block_id] = blk
             if new_hashes is not None:
@@ -142,7 +142,7 @@ class BlockPool:
             else:
                 parent_block = blocks[num_cached_blocks - 1]
                 assert parent_block.block_hash is not None
-                parent_block_hash = parent_block.block_hash.split(":")[0]
+                parent_block_hash = parent_block.block_hash.split(b":")[0]
 
             self.kv_event_queue.append(
                 BlockStored(
@@ -216,7 +216,7 @@ class BlockPool:
             # we disable hybrid kv cache manager when kv cache event is
             # enabled, so there is only one group.
             self.kv_event_queue.append(
-                BlockRemoved(block_hashes=[block_hash.split(":")[0]]))
+                BlockRemoved(block_hashes=[block_hash.split(b":")[0]]))
         return True
 
     def touch(self, blocks: tuple[list[KVCacheBlock], ...]) -> None:

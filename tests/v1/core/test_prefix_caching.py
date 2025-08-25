@@ -3,6 +3,7 @@
 """Compare the with and without prefix caching."""
 
 import copy
+import random
 from typing import Optional
 
 import pytest
@@ -124,7 +125,7 @@ def test_prefill():
     for block_id in (1, 2, 3):
         block_tokens = tuple(all_token_ids[(block_id - 1) * 16:block_id * 16])
         block_hash = hash_block_tokens(parent_block_hash, block_tokens)
-        assert manager.block_pool.blocks[block_id].block_hash.split(":")[0] == block_hash
+        assert manager.block_pool.blocks[block_id].block_hash.split(b":")[0] == block_hash
         assert manager.block_pool.blocks[block_id].ref_cnt == 1
         parent_block_hash = block_hash
 
@@ -242,7 +243,7 @@ def test_prefill_hybrid_model():
         block_tokens = tuple(all_token_ids[(length - 1) * 16:length * 16])
         block_hash = hash_block_tokens(parent_block_hash, block_tokens)
         for block_id in block_ids:
-            assert (manager.block_pool.blocks[block_id].block_hash.split(":")[0]
+            assert (manager.block_pool.blocks[block_id].block_hash.split(b":")[0]
                     == block_hash)
             assert manager.block_pool.blocks[block_id].ref_cnt == 1
         parent_block_hash = block_hash
@@ -279,7 +280,7 @@ def test_prefill_hybrid_model():
         manager.block_pool.cached_block_hash_to_block)
 
     def test_partial_request_hit(request_id: str,
-                                 hash_to_evict: list[str],
+                                 hash_to_evict: list[bytes],
                                  expect_hit_length: int):
         req = make_request(request_id, common_token_ids + unique_token_ids,
                            block_size)
@@ -299,32 +300,32 @@ def test_prefill_hybrid_model():
 
     # Evict the blocks outside sliding window, does not affect the hit length.
     test_partial_request_hit("2", [
-        f"{block_hashes[0]}:1",
-        f"{block_hashes[0]}:2"
+        block_hashes[0] + b":1",
+        block_hashes[0] + b":2"
     ], 3)
 
     # Evict the first block of full attention, makes total cache miss.
     test_partial_request_hit("3", [
-        f"{block_hashes[0]}:0",
+        block_hashes[0] + b":0",
     ], 0)
 
     # Evict the last block of all layers, reduces the hit length to 2.
     test_partial_request_hit("4", [
-        f"{block_hashes[2]}:0",
-        f"{block_hashes[2]}:1",
-        f"{block_hashes[2]}:2",
+        block_hashes[2] + b":0",
+        block_hashes[2] + b":1",
+        block_hashes[2] + b":2",
     ], 2)
 
     # Evict the last block of full attention, reduces the hit length to 2.
-    test_partial_request_hit("5", [f"{block_hashes[2]}:0"],
+    test_partial_request_hit("5", [block_hashes[2] + b":0"],
                              2)
 
     # Evict the last block of sliding window, reduces the hit length to 2.
-    test_partial_request_hit("6", [f"{block_hashes[2]}:1"],
+    test_partial_request_hit("6", [block_hashes[2] + b":1"],
                              2)
 
     # Evict the last block of sliding window, reduces the hit length to 2.
-    test_partial_request_hit("7", [f"{block_hashes[2]}:2"],
+    test_partial_request_hit("7", [block_hashes[2] + b":2"],
                              2)
 
     # Evict different set of blocks for full attention and sliding window makes
@@ -333,9 +334,9 @@ def test_prefill_hybrid_model():
     # The cache hit length of sliding window is 2 * block_size.
     # Then it is cache miss as the two type of layers have different hit length.
     test_partial_request_hit("8", [
-        f"{block_hashes[2]}:0",
-        f"{block_hashes[0]}:1",
-        f"{block_hashes[0]}:2",
+        block_hashes[2] + b":0",
+        block_hashes[0] + b":1",
+        block_hashes[0] + b":2",
     ], 0)
 
 
@@ -379,7 +380,7 @@ def test_prefill_plp():
     for block_id in (1, 2, 3):
         block_tokens = tuple(all_token_ids[(block_id - 1) * 16:block_id * 16])
         block_hash = hash_block_tokens(parent_block_hash, block_tokens)
-        assert (manager.block_pool.blocks[block_id].block_hash.split(":")[0]
+        assert (manager.block_pool.blocks[block_id].block_hash.split(b":")[0]
                 == block_hash)
         assert manager.block_pool.blocks[block_id].ref_cnt == 1
         parent_block_hash = block_hash
@@ -1081,9 +1082,9 @@ def test_prefix_cache_stats_disabled():
 
 def test_maybe_evict_cached_block():
     pool = BlockPool(num_gpu_blocks=4, enable_caching=True)
-    block_hash0 = "10:1000"
-    block_hash1 = "20:2000"
-    block_hash2 = "30:3000"
+    block_hash0 = b"10:1000"
+    block_hash1 = b"20:2000"
+    block_hash2 = b"30:3000"
     block_hashes = [
         block_hash0,
         block_hash1,
@@ -1302,7 +1303,7 @@ def test_eagle_with_sliding_window():
     assert manager.block_pool.get_cached_block(
         block_hash_first_block, kv_cache_group_ids=[0]) is not None
     manager.block_pool.cached_block_hash_to_block.pop(
-        f"{block_hash_first_block}:0")
+        block_hash_first_block + b":0")
 
     # New request
     req_after_evict = make_request("partial_eagle_after_evict", token_ids,

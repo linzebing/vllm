@@ -42,7 +42,7 @@ def test_chunked_local_attention_possible_cached_prefix():
                                                   block_pool)
 
     def run_one_case(block_is_cached, tail_token, expect_length):
-        block_hash_list = [str(i) for i in range(len(block_is_cached))]
+        block_hash_list = [str(i).encode() for i in range(len(block_is_cached))]
 
         block_pool.cached_block_hash_to_block.clear()
 
@@ -50,7 +50,7 @@ def test_chunked_local_attention_possible_cached_prefix():
         for i, (block_hash,
                 is_cached) in enumerate(zip(block_hash_list, block_is_cached)):
             if is_cached:
-                block_pool.cached_block_hash_to_block[f"{block_hash}:0"] = {
+                block_pool.cached_block_hash_to_block[block_hash + b":0"] = {
                         i: block_pool.blocks[i + 10],
                     }
 
@@ -104,7 +104,7 @@ def test_sliding_window_possible_cached_prefix():
     manager = get_sliding_window_manager(sliding_window_spec, block_pool)
 
     def run_one_case(block_is_cached, expect_length):
-        block_hash_list = [str(i) for i in range(len(block_is_cached))]
+        block_hash_list = [str(i).encode() for i in range(len(block_is_cached))]
 
         block_pool.cached_block_hash_to_block.clear()
 
@@ -112,7 +112,7 @@ def test_sliding_window_possible_cached_prefix():
         for i, (block_hash,
                 is_cached) in enumerate(zip(block_hash_list, block_is_cached)):
             if is_cached:
-                block_pool.cached_block_hash_to_block[f"{block_hash}:0"] = {
+                block_pool.cached_block_hash_to_block[block_hash + b":0"] = {
                         i: block_pool.blocks[i + 10],
                     }
 
