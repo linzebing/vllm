@@ -14,11 +14,9 @@ from vllm.sampling_params import SamplingParams
 from vllm.utils import sha256, sha256_cbor_64bit
 from vllm.v1.core.block_pool import BlockPool
 from vllm.v1.core.kv_cache_manager import KVCacheManager, Request
-from vllm.v1.core.kv_cache_utils import (KVCacheBlock,
-                                         get_block_hash_with_group_id,
+from vllm.v1.core.kv_cache_utils import (BlockHashKey, KVCacheBlock,
                                          get_request_block_hasher,
-                                         hash_block_tokens, init_none_hash,
-                                         strip_group_id)
+                                         hash_block_tokens, init_none_hash)
 from vllm.v1.kv_cache_interface import (FullAttentionSpec, KVCacheConfig,
                                         KVCacheGroupSpec, SlidingWindowSpec)
 
@@ -132,8 +130,9 @@ def test_prefill(hash_fn):
         block_tokens = tuple(all_token_ids[(block_id - 1) * 16:block_id * 16])
         block_hash = hash_block_tokens(hash_fn, parent_block_hash,
                                        block_tokens)
-        assert (strip_group_id(
-            manager.block_pool.blocks[block_id].block_hash) == block_hash)
+        blk_hash_key = manager.block_pool.blocks[block_id].block_hash
+        assert blk_hash_key is not None
+        assert blk_hash_key[0] == block_hash
         assert manager.block_pool.blocks[block_id].ref_cnt == 1
         parent_block_hash = block_hash
 
@@ -256,8 +255,9 @@ def test_prefill_hybrid_model():
         block_hash = hash_block_tokens(hash_fn, parent_block_hash,
                                        block_tokens)
         for block_id in block_ids:
-            assert (strip_group_id(
-                manager.block_pool.blocks[block_id].block_hash) == block_hash)
+            blk_hash_key = manager.block_pool.blocks[block_id].block_hash
+            assert blk_hash_key is not None
+            assert blk_hash_key[0] == block_hash
             assert manager.block_pool.blocks[block_id].ref_cnt == 1
         parent_block_hash = block_hash
 
@@ -313,32 +313,28 @@ def test_prefill_hybrid_model():
 
     # Evict the blocks outside sliding window, does not affect the hit length.
     test_partial_request_hit("2", [
-        get_block_hash_with_group_id(block_hashes[0], 1),
-        get_block_hash_with_group_id(block_hashes[0], 2)
+        BlockHashKey((block_hashes[0], 1)),
+        BlockHashKey((block_hashes[0], 2))
     ], 3)
 
     # Evict the first block of full attention, makes total cache miss.
-    test_partial_request_hit(
-        "3", [get_block_hash_with_group_id(block_hashes[0], 0)], 0)
+    test_partial_request_hit("3", [BlockHashKey((block_hashes[0], 0))], 0)
 
     # Evict the last block of all layers, reduces the hit length to 2.
     test_partial_request_hit("4", [
-        get_block_hash_with_group_id(block_hashes[2], 0),
-        get_block_hash_with_group_id(block_hashes[2], 1),
-        get_block_hash_with_group_id(block_hashes[2], 2),
+        BlockHashKey((block_hashes[2], 0)),
+        BlockHashKey((block_hashes[2], 1)),
+        BlockHashKey((block_hashes[2], 2)),
     ], 2)
 
     # Evict the last block of full attention, reduces the hit length to 2.
-    test_partial_request_hit(
-        "5", [get_block_hash_with_group_id(block_hashes[2], 0)], 2)
+    test_partial_request_hit("5", [BlockHashKey((block_hashes[2], 0))], 2)
 
     # Evict the last block of sliding window, reduces the hit length to 2.
-    test_partial_request_hit(
-        "6", [get_block_hash_with_group_id(block_hashes[2], 1)], 2)
+    test_partial_request_hit("6", [BlockHashKey((block_hashes[2], 1))], 2)
 
     # Evict the last block of sliding window, reduces the hit length to 2.
-    test_partial_request_hit(
-        "7", [get_block_hash_with_group_id(block_hashes[2], 2)], 2)
+    test_partial_request_hit("7", [BlockHashKey((block_hashes[2], 2))], 2)
 
     # Evict different set of blocks for full attention and sliding window makes
     # total cache miss.
@@ -346,9 +342,9 @@ def test_prefill_hybrid_model():
     # The cache hit length of sliding window is 2 * block_size.
     # Then it is cache miss as the two type of layers have different hit length.
     test_partial_request_hit("8", [
-        get_block_hash_with_group_id(block_hashes[2], 0),
-        get_block_hash_with_group_id(block_hashes[0], 0),
-        get_block_hash_with_group_id(block_hashes[0], 1),
+        BlockHashKey((block_hashes[2], 0)),
+        BlockHashKey((block_hashes[0], 0)),
+        BlockHashKey((block_hashes[0], 1)),
     ], 0)
 
 
@@ -397,8 +393,9 @@ def test_prefill_plp():
         block_tokens = tuple(all_token_ids[(block_id - 1) * 16:block_id * 16])
         block_hash = hash_block_tokens(hash_fn, parent_block_hash,
                                        block_tokens)
-        assert (strip_group_id(
-            manager.block_pool.blocks[block_id].block_hash) == block_hash)
+        blk_hash_key = manager.block_pool.blocks[block_id].block_hash
+        assert blk_hash_key is not None
+        assert blk_hash_key[0] == block_hash
         assert manager.block_pool.blocks[block_id].ref_cnt == 1
         parent_block_hash = block_hash
 
@@ -1325,7 +1322,7 @@ def test_eagle_with_sliding_window():
     assert manager.block_pool.get_cached_block(
         block_hash_first_block, kv_cache_group_ids=[0]) is not None
     manager.block_pool.cached_block_hash_to_block.pop(
-        get_block_hash_with_group_id(block_hash_first_block, 0))
+        BlockHashKey((block_hash_first_block, 0)))
 
     # New request
     req_after_evict = make_request("partial_eagle_after_evict", token_ids,

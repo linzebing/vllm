@@ -27,7 +27,7 @@ from vllm.transformers_utils.config import (
     maybe_register_config_serialize_by_value)
 from vllm.utils import (decorate_logs, get_hash_fn_by_name, make_zmq_socket,
                         resolve_obj_by_qualname, set_process_title)
-from vllm.v1.core.kv_cache_utils import (get_kv_cache_config,
+from vllm.v1.core.kv_cache_utils import (BlockHash, get_kv_cache_config,
                                          get_request_block_hasher,
                                          init_none_hash,
                                          unify_kv_cache_configs)
@@ -144,7 +144,7 @@ class EngineCore:
             self.batch_queue = queue.Queue(self.batch_queue_size)
 
         self.request_block_hasher: Optional[Callable[[Request],
-                                                     list[bytes]]] = None
+                                                     list[BlockHash]]] = None
         if (self.vllm_config.cache_config.enable_prefix_caching
                 or self.scheduler.get_kv_connector() is not None):
 

@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 from vllm.v1.core.block_pool import BlockPool
-from vllm.v1.core.kv_cache_utils import KVCacheBlock
+from vllm.v1.core.kv_cache_utils import BlockHash, KVCacheBlock
 from vllm.v1.core.single_type_kv_cache_manager import (
     FullAttentionManager, get_manager_for_kv_cache_spec)
 from vllm.v1.kv_cache_interface import (FullAttentionSpec, KVCacheConfig,
@@ -165,7 +165,7 @@ class KVCacheCoordinator(ABC):
     @abstractmethod
     def find_longest_cache_hit(
         self,
-        block_hashes: list[bytes],
+        block_hashes: list[BlockHash],
         max_cache_hit_length: int,
     ) -> tuple[tuple[list[KVCacheBlock], ...], int]:
         pass
@@ -191,7 +191,7 @@ class KVCacheCoordinatorNoPrefixCache(KVCacheCoordinator):
 
     def find_longest_cache_hit(
         self,
-        block_hashes: list[bytes],
+        block_hashes: list[BlockHash],
         max_cache_hit_length: int,
     ) -> tuple[tuple[list[KVCacheBlock], ...], int]:
         blocks: tuple[list[KVCacheBlock], ...] = tuple(
@@ -219,7 +219,7 @@ class UnitaryKVCacheCoordinator(KVCacheCoordinator):
 
     def find_longest_cache_hit(
         self,
-        block_hashes: list[bytes],
+        block_hashes: list[BlockHash],
         max_cache_hit_length: int,
     ) -> tuple[tuple[list[KVCacheBlock], ...], int]:
         hit_blocks = self.single_type_managers[0].find_longest_cache_hit(
@@ -314,7 +314,7 @@ class HybridKVCacheCoordinator(KVCacheCoordinator):
 
     def find_longest_cache_hit(
         self,
-        block_hashes: list[bytes],
+        block_hashes: list[BlockHash],
         max_cache_hit_length: int,
     ) -> tuple[tuple[list[KVCacheBlock], ...], int]:
         """
