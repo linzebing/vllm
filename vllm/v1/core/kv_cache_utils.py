@@ -147,7 +147,7 @@ class KVCacheBlock:
     ref_cnt: int = 0
     # The hash key (block hash + group id) of the block, only available
     # when the block is full and cached.
-    _block_hash_with_group_id: Optional[BlockHashWithGroupId] = None
+    _block_hash: Optional[BlockHashWithGroupId] = None
 
     # Used to construct a doubly linked list for free blocks.
     # These two attributes should only be manipulated by FreeKVCacheBlockQueue.
@@ -158,20 +158,19 @@ class KVCacheBlock:
     is_null: bool = False
 
     @property
-    def block_hash_with_group_id(self) -> Optional[BlockHashWithGroupId]:
-        return self._block_hash_with_group_id
+    def block_hash(self) -> Optional[BlockHashWithGroupId]:
+        return self._block_hash
 
-    @block_hash_with_group_id.setter
-    def block_hash_with_group_id(self,
-                                 block_hash_with_group_id: BlockHashWithGroupId):
-        assert self.block_hash_with_group_id is None, (
-            "block_hash_with_group_id can only be set once to prevent "
+    @block_hash.setter
+    def block_hash(self, block_hash: BlockHashWithGroupId):
+        assert self.block_hash is None, (
+            "block_hash can only be set once to prevent "
             "unintended overrides.")
-        self._block_hash_with_group_id = block_hash_with_group_id
+        self._block_hash = block_hash
 
-    def reset_block_hash_with_group_id(self):
+    def reset_block_hash(self):
         """Reset the block hash when the block is evicted."""
-        self._block_hash_with_group_id = None
+        self._block_hash = None
 
     def __repr__(self) -> str:
         # Use block_id instead of KVCacheBlock object to avoid calling __repr__
@@ -182,7 +181,7 @@ class KVCacheBlock:
                          if self.next_free_block else None)
         return (f"KVCacheBlock(block_id={self.block_id}, "
                 f"ref_cnt={self.ref_cnt}, "
-                f"_block_hash_with_group_id={self._block_hash_with_group_id!r}, "
+                f"_block_hash={self._block_hash!r}, "
                 f"prev_free_block={prev_block_id}, "
                 f"next_free_block={next_block_id})")
 

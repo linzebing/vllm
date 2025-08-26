@@ -107,7 +107,7 @@ class KVCacheBlock:
     block_id: int
     # The block hash with group id assigned when the block is full,
     # and reset when the block is evicted.
-    block_hash_with_group_id: BlockHashWithGroupId
+    block_hash: BlockHashWithGroupId
     # The number of requests using this block now.
     ref_cnt: int
 
