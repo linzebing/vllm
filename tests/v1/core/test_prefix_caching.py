@@ -130,7 +130,7 @@ def test_prefill(hash_fn):
         block_tokens = tuple(all_token_ids[(block_id - 1) * 16:block_id * 16])
         block_hash = hash_block_tokens(hash_fn, parent_block_hash,
                                        block_tokens)
-        blk_hash_key = manager.block_pool.blocks[block_id].block_hash
+        blk_hash_key = manager.block_pool.blocks[block_id].block_hash_key
         assert blk_hash_key is not None
         assert blk_hash_key[0] == block_hash
         assert manager.block_pool.blocks[block_id].ref_cnt == 1
@@ -138,7 +138,7 @@ def test_prefill(hash_fn):
 
     # Check partial block metadata
     for block_id in (4, ):
-        assert manager.block_pool.blocks[block_id].block_hash is None
+        assert manager.block_pool.blocks[block_id].block_hash_key is None
         assert manager.block_pool.blocks[block_id].ref_cnt == 1
 
     # Cache hit in the common prefix when the original block is still in use.
@@ -255,7 +255,7 @@ def test_prefill_hybrid_model():
         block_hash = hash_block_tokens(hash_fn, parent_block_hash,
                                        block_tokens)
         for block_id in block_ids:
-            blk_hash_key = manager.block_pool.blocks[block_id].block_hash
+            blk_hash_key = manager.block_pool.blocks[block_id].block_hash_key
             assert blk_hash_key is not None
             assert blk_hash_key[0] == block_hash
             assert manager.block_pool.blocks[block_id].ref_cnt == 1
@@ -263,7 +263,7 @@ def test_prefill_hybrid_model():
 
     # Check partial block metadata
     for block_id in (4, 8, 12):
-        assert manager.block_pool.blocks[block_id].block_hash is None
+        assert manager.block_pool.blocks[block_id].block_hash_key is None
         assert manager.block_pool.blocks[block_id].ref_cnt == 1
 
     # Cache hit in the common prefix
@@ -385,7 +385,7 @@ def test_prefill_plp():
                                     len(computed_blocks.blocks[0]) * 16,
                                     computed_blocks)
     assert blocks.get_block_ids() == ([1, 2, 3, 4], )
-    req0_block_hashes = [b.block_hash for b in blocks.blocks[0]]
+    req0_block_hashes = [b.block_hash_key for b in blocks.blocks[0]]
 
     # Check full block metadata
     parent_block_hash = None
@@ -393,7 +393,7 @@ def test_prefill_plp():
         block_tokens = tuple(all_token_ids[(block_id - 1) * 16:block_id * 16])
         block_hash = hash_block_tokens(hash_fn, parent_block_hash,
                                        block_tokens)
-        blk_hash_key = manager.block_pool.blocks[block_id].block_hash
+        blk_hash_key = manager.block_pool.blocks[block_id].block_hash_key
         assert blk_hash_key is not None
         assert blk_hash_key[0] == block_hash
         assert manager.block_pool.blocks[block_id].ref_cnt == 1
@@ -401,7 +401,7 @@ def test_prefill_plp():
 
     # Check partial block metadata
     for block_id in (4, ):
-        assert manager.block_pool.blocks[block_id].block_hash is None
+        assert manager.block_pool.blocks[block_id].block_hash_key is None
         assert manager.block_pool.blocks[block_id].ref_cnt == 1
 
     # Request #1 is a non-prompt-logprobs request:
@@ -457,7 +457,7 @@ def test_prefill_plp():
                                     computed_blocks)
     block_ids = blocks.get_block_ids()
     # Duplicate cached blocks have different ids but same hashes vs request #0
-    assert [b.block_hash for b in blocks.blocks[0]] == req0_block_hashes
+    assert [b.block_hash_key for b in blocks.blocks[0]] == req0_block_hashes
     assert block_ids != ([1, 2, 3, 4], )
 
     # Request #2 block hashes are valid since request #0 hashes are.
@@ -501,7 +501,7 @@ def test_decode():
                                         computed_blocks)
     assert new_blocks is not None and len(new_blocks.blocks[0]) == 0
     assert manager.coordinator.single_type_managers[0].req_to_blocks[
-        req0.request_id][-1].block_hash is None
+        req0.request_id][-1].block_hash_key is None
 
     # Append slots with allocating a new block.
     req0.num_computed_tokens = 59
@@ -514,9 +514,9 @@ def test_decode():
                                         computed_blocks)
     assert new_blocks is not None and len(new_blocks.blocks[0]) == 1
     assert manager.coordinator.single_type_managers[0].req_to_blocks[
-        req0.request_id][-2].block_hash is not None
+        req0.request_id][-2].block_hash_key is not None
     assert manager.coordinator.single_type_managers[0].req_to_blocks[
-        req0.request_id][-1].block_hash is None
+        req0.request_id][-1].block_hash_key is None
 
 
 def test_evict():
@@ -611,7 +611,7 @@ def test_hash_block_correct_reuse():
     assert len(blocks.blocks[0]) == 1
 
     assert manager.block_pool.blocks[blocks.blocks[0]
-                                     [0].block_id].block_hash is None
+                                     [0].block_id].block_hash_key is None
 
 
 def test_computed_blocks_not_evicted():
@@ -749,7 +749,7 @@ def test_cache_blocks(hash_fn):
     )
 
     assert len(block_pool.cached_block_hash_to_block) == 2
-    assert all([block.block_hash is not None for block in blocks])
+    assert all([block.block_hash_key is not None for block in blocks])
 
     # Test that blocks that don't start from the beginning are cached correctly.
     blocks += [KVCacheBlock(block_id=2)]
@@ -762,7 +762,7 @@ def test_cache_blocks(hash_fn):
         kv_cache_group_id=0,
     )
     assert len(block_pool.cached_block_hash_to_block) == 3
-    assert blocks[0].block_hash is not None
+    assert blocks[0].block_hash_key is not None
 
 
 def test_cache_blocks_multi_group():
@@ -791,7 +791,7 @@ def test_cache_blocks_multi_group():
     )
     assert len(block_pool.cached_block_hash_to_block) == 2
     assert len(req.block_hashes) == 3
-    assert all([block.block_hash is not None for block in blocks])
+    assert all([block.block_hash_key is not None for block in blocks])
 
     # Cache the blocks for group 1.
     blocks = [KVCacheBlock(block_id=i) for i in range(3)]
@@ -805,7 +805,7 @@ def test_cache_blocks_multi_group():
     )
     assert len(block_pool.cached_block_hash_to_block) == 5
     assert len(req.block_hashes) == 3
-    assert all([block.block_hash is not None for block in blocks])
+    assert all([block.block_hash_key is not None for block in blocks])
 
     # Block hash 0: hit for group 0 and 1
     # Block hash 1: hit for group 0 and 1
@@ -1071,7 +1071,7 @@ def test_reset_prefix_cache():
 
     assert manager.reset_prefix_cache()
     assert not manager.block_pool.cached_block_hash_to_block
-    assert all([blk.block_hash is None for blk in manager.block_pool.blocks])
+    assert all([blk.block_hash_key is None for blk in manager.block_pool.blocks])
 
 
 def test_prefix_cache_stats_disabled():
@@ -1101,9 +1101,9 @@ def test_prefix_cache_stats_disabled():
 
 def test_maybe_evict_cached_block():
     pool = BlockPool(num_gpu_blocks=4, enable_caching=True)
-    block_hash0 = b"10:1000"
-    block_hash1 = b"20:2000"
-    block_hash2 = b"30:3000"
+    block_hash0 = BlockHashKey((b"10", 0))
+    block_hash1 = BlockHashKey((b"20", 0))
+    block_hash2 = BlockHashKey((b"30", 0))
     block_hashes = [
         block_hash0,
         block_hash1,
@@ -1113,9 +1113,9 @@ def test_maybe_evict_cached_block():
     ]
     assert len(pool.blocks) == len(block_hashes)
     # Manually add all blocks to cached_blocks
-    for block, block_hash in zip(pool.blocks, block_hashes):
-        block.block_hash = block_hash
-        pool.cached_block_hash_to_block[block_hash][block.block_id] = block
+    for block, block_hash_key in zip(pool.blocks, block_hashes):
+        block.block_hash_key = block_hash_key
+        pool.cached_block_hash_to_block[block_hash_key][block.block_id] = block
 
     block0, block1, block2, block3 = pool.blocks
     assert pool.cached_block_hash_to_block == {

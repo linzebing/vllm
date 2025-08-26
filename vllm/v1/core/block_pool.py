@@ -127,12 +127,12 @@ class BlockPool:
         new_hashes: Optional[list[BlockHash]] = (
             [] if self.enable_kv_cache_events else None)
         for i, blk in enumerate(new_full_blocks):
-            assert blk.block_hash is None
+            assert blk.block_hash_key is None
             block_hash = new_block_hashes[i]
 
             # Update and added the full block to the cache.
             key = BlockHashKey((block_hash, kv_cache_group_id))
-            blk.block_hash = key
+            blk.block_hash_key = key
             self.cached_block_hash_to_block[key][blk.block_id] = blk
             if new_hashes is not None:
                 new_hashes.append(block_hash)
@@ -142,8 +142,8 @@ class BlockPool:
                 parent_block_hash: Optional[BlockHash] = None
             else:
                 parent_block = blocks[num_cached_blocks - 1]
-                assert parent_block.block_hash is not None
-                parent_block_hash = parent_block.block_hash[0]
+                assert parent_block.block_hash_key is not None
+                parent_block_hash = parent_block.block_hash_key[0]
 
             self.kv_event_queue.append(
                 BlockStored(
@@ -197,19 +197,19 @@ class BlockPool:
         Returns:
             True if the block is evicted, False otherwise.
         """
-        block_hash = block.block_hash
-        if block_hash is None:
+        block_hash_key = block.block_hash_key
+        if block_hash_key is None:
             # The block doesn't have hash, eviction is not needed
             return False
-        blocks_by_id = self.cached_block_hash_to_block.get(block_hash)
+        blocks_by_id = self.cached_block_hash_to_block.get(block_hash_key)
         if blocks_by_id is None:
             # block_hash not found in cached_block_hash_to_block,
             # eviction is not needed
             return False
-        block.reset_hash()
+        block.reset_hash_key()
         blocks_by_id.pop(block.block_id, None)
         if len(blocks_by_id) == 0:
-            del self.cached_block_hash_to_block[block_hash]
+            del self.cached_block_hash_to_block[block_hash_key]
 
         if self.enable_kv_cache_events:
             # FIXME (Chen): Not sure whether we should return `hash_value`
@@ -217,7 +217,7 @@ class BlockPool:
             # we disable hybrid kv cache manager when kv cache event is
             # enabled, so there is only one group.
             self.kv_event_queue.append(
-                BlockRemoved(block_hashes=[block_hash[0]]))
+                BlockRemoved(block_hashes=[block_hash_key[0]]))
         return True
 
     def touch(self, blocks: tuple[list[KVCacheBlock], ...]) -> None:
@@ -275,7 +275,7 @@ class BlockPool:
 
         # Remove all hashes from all blocks.
         for block in self.blocks:
-            block.reset_hash()
+            block.reset_hash_key()
 
         logger.info("Successfully reset prefix cache")
 

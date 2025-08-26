@@ -105,9 +105,9 @@ The prefix caching in vLLM v1 is implemented in the KV cache manager. The basic 
 class KVCacheBlock:
     # The block ID (immutable)
     block_id: int
-    # The block hash (will be assigned when the block is full,
-    # and will be reset when the block is evicted).
-    block_hash: BlockHash
+    # The block hash key (hash + group id) assigned when the block is full,
+    # and reset when the block is evicted.
+    block_hash_key: BlockHashKey
     # The number of requests using this block now.
     ref_cnt: int
 

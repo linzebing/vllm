@@ -132,7 +132,7 @@ class KVCacheBlock:
     ref_cnt: int = 0
     # The hash key (block hash + group id) of the block, only available
     # when the block is full and cached.
-    _block_hash: Optional[BlockHashKey] = None
+    _block_hash_key: Optional[BlockHashKey] = None
 
     # Used to construct a doubly linked list for free blocks.
     # These two attributes should only be manipulated by FreeKVCacheBlockQueue.
@@ -143,18 +143,18 @@ class KVCacheBlock:
     is_null: bool = False
 
     @property
-    def block_hash(self) -> Optional[BlockHashKey]:
-        return self._block_hash
+    def block_hash_key(self) -> Optional[BlockHashKey]:
+        return self._block_hash_key
 
-    @block_hash.setter
-    def block_hash(self, block_hash: BlockHashKey):
-        assert self.block_hash is None, (
+    @block_hash_key.setter
+    def block_hash_key(self, block_hash_key: BlockHashKey):
+        assert self.block_hash_key is None, (
             "The block already has a hash. This should not happen.")
-        self._block_hash = block_hash
+        self._block_hash_key = block_hash_key
 
-    def reset_hash(self):
-        """Reset the block hash when the block is evicted."""
-        self._block_hash = None
+    def reset_hash_key(self):
+        """Reset the block hash key when the block is evicted."""
+        self._block_hash_key = None
 
     def __repr__(self) -> str:
         # Use block_id instead of KVCacheBlock object to avoid calling __repr__
@@ -165,7 +165,7 @@ class KVCacheBlock:
                          if self.next_free_block else None)
         return (f"KVCacheBlock(block_id={self.block_id}, "
                 f"ref_cnt={self.ref_cnt}, "
-                f"_block_hash={self._block_hash!r}, "
+                f"_block_hash_key={self._block_hash_key!r}, "
                 f"prev_free_block={prev_block_id}, "
                 f"next_free_block={next_block_id})")
 
