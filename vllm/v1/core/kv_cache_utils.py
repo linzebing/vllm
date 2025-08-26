@@ -168,7 +168,7 @@ class KVCacheBlock:
             "unintended overrides.")
         self._block_hash = block_hash
 
-    def reset_block_hash(self):
+    def reset_hash(self):
         """Reset the block hash when the block is evicted."""
         self._block_hash = None
 

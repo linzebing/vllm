@@ -137,7 +137,7 @@ def test_kv_cache_block():
     block.block_hash = block_hash
     assert block.block_hash == block_hash
 
-    block.reset_block_hash()
+    block.reset_hash()
     assert block.block_hash is None
 
 

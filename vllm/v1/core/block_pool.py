@@ -213,7 +213,7 @@ class BlockPool:
             # block_hash not found in cached_block_hash_to_block,
             # eviction is not needed
             return False
-        block.reset_block_hash()
+        block.reset_hash()
         blocks_by_id.pop(block.block_id, None)
         if len(blocks_by_id) == 0:
             del self.cached_block_hash_to_block[block_hash_key]
@@ -283,7 +283,7 @@ class BlockPool:
 
         # Remove all hashes from all blocks.
         for block in self.blocks:
-            block.reset_block_hash()
+            block.reset_hash()
 
         logger.info("Successfully reset prefix cache")
 
