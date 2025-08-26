@@ -14,11 +14,22 @@ from vllm.v1.core.kv_cache_manager import KVCacheManager
 # disable yapf here as it formats differently than isort such that both fail
 # yapf: disable
 from vllm.v1.core.kv_cache_utils import (
-    BlockHashKey, FreeKVCacheBlockQueue, KVCacheBlock, PrefixCachingMetrics,
-    estimate_max_model_len, generate_block_hash_extra_keys,
-    get_kv_cache_config, get_max_concurrency_for_kv_cache_config,
-    get_request_block_hasher, hash_block_tokens, init_none_hash,
-    is_kv_cache_type_uniform, unify_kv_cache_configs)
+    BlockHash,
+    BlockHashWithGroupId,
+    FreeKVCacheBlockQueue,
+    KVCacheBlock,
+    PrefixCachingMetrics,
+    estimate_max_model_len,
+    generate_block_hash_extra_keys,
+    get_kv_cache_config,
+    get_max_concurrency_for_kv_cache_config,
+    get_request_block_hasher,
+    hash_block_tokens,
+    init_none_hash,
+    is_kv_cache_type_uniform,
+    make_block_hash_with_group_id,
+    unify_kv_cache_configs,
+)
 from vllm.v1.kv_cache_interface import (FullAttentionSpec, KVCacheConfig,
                                         KVCacheGroupSpec, KVCacheTensor,
                                         SlidingWindowSpec)
@@ -113,7 +124,7 @@ def test_kv_cache_block():
     block = KVCacheBlock(block_id=0)
     assert block.block_id == 0
     assert block.ref_cnt == 0
-    assert block.block_hash_key is None
+    assert block.block_hash_with_group_id is None
 
     # Test reference count manipulation
     block.ref_cnt += 1
@@ -122,12 +133,12 @@ def test_kv_cache_block():
     assert block.ref_cnt == 0
 
     # Test block hash setting and resetting
-    block_hash = BlockHashKey((b"abc", 0))
-    block.block_hash_key = block_hash
-    assert block.block_hash_key == block_hash
+    block_hash = make_block_hash_with_group_id(BlockHash(b"abc"), 0)
+    block.block_hash_with_group_id = block_hash
+    assert block.block_hash_with_group_id == block_hash
 
-    block.reset_hash_key()
-    assert block.block_hash_key is None
+    block.reset_block_hash_with_group_id()
+    assert block.block_hash_with_group_id is None
 
 
 def test_free_kv_cache_block_queue_initialization():

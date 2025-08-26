@@ -23,10 +23,28 @@ from vllm.v1.request import Request
 # catch accidental misuse when passing around raw byte strings.
 BlockHash = NewType("BlockHash", bytes)
 
-# BlockHashKey combines a ``BlockHash`` with its KV cache group ID.  It
-# is used as the key in caches that need to distinguish the same block
-# content across different groups.
-BlockHashKey = NewType("BlockHashKey", tuple[BlockHash, int])
+# ``BlockHashWithGroupId`` combines a ``BlockHash`` with its KV cache group ID.
+# It is represented as raw bytes for compactness and efficiency. The helper
+# functions below pack/unpack the ``BlockHash`` and group id into/from the key.
+BlockHashWithGroupId = NewType("BlockHashWithGroupId", bytes)
+
+
+def make_block_hash_with_group_id(block_hash: BlockHash,
+                                  group_id: int) -> BlockHashWithGroupId:
+    """Pack a ``BlockHash`` and group id into a ``BlockHashWithGroupId``.
+
+    The group id is encoded using 4 bytes in big-endian order and appended to
+    the block hash bytes.  This representation avoids creating tuples while
+    still allowing us to recover both components when needed.
+    """
+    return BlockHashWithGroupId(block_hash +
+                                group_id.to_bytes(4, "big", signed=False))
+
+
+def split_block_hash_with_group_id(
+        key: BlockHashWithGroupId) -> tuple[BlockHash, int]:
+    """Split a ``BlockHashWithGroupId`` back into ``(block_hash, group_id)``."""
+    return BlockHash(key[:-4]), int.from_bytes(key[-4:], "big", signed=False)
 
 logger = init_logger(__name__)
 
@@ -129,7 +147,7 @@ class KVCacheBlock:
     ref_cnt: int = 0
     # The hash key (block hash + group id) of the block, only available
     # when the block is full and cached.
-    _block_hash_key: Optional[BlockHashKey] = None
+    _block_hash_with_group_id: Optional[BlockHashWithGroupId] = None
 
     # Used to construct a doubly linked list for free blocks.
     # These two attributes should only be manipulated by FreeKVCacheBlockQueue.
@@ -140,18 +158,20 @@ class KVCacheBlock:
     is_null: bool = False
 
     @property
-    def block_hash_key(self) -> Optional[BlockHashKey]:
-        return self._block_hash_key
+    def block_hash_with_group_id(self) -> Optional[BlockHashWithGroupId]:
+        return self._block_hash_with_group_id
 
-    @block_hash_key.setter
-    def block_hash_key(self, block_hash_key: BlockHashKey):
-        assert self.block_hash_key is None, (
-            "The block already has a hash. This should not happen.")
-        self._block_hash_key = block_hash_key
+    @block_hash_with_group_id.setter
+    def block_hash_with_group_id(self,
+                                 block_hash_with_group_id: BlockHashWithGroupId):
+        assert self.block_hash_with_group_id is None, (
+            "block_hash_with_group_id can only be set once to prevent "
+            "unintended overrides.")
+        self._block_hash_with_group_id = block_hash_with_group_id
 
-    def reset_hash_key(self):
-        """Reset the block hash key when the block is evicted."""
-        self._block_hash_key = None
+    def reset_block_hash_with_group_id(self):
+        """Reset the block hash when the block is evicted."""
+        self._block_hash_with_group_id = None
 
     def __repr__(self) -> str:
         # Use block_id instead of KVCacheBlock object to avoid calling __repr__
@@ -162,7 +182,7 @@ class KVCacheBlock:
                          if self.next_free_block else None)
         return (f"KVCacheBlock(block_id={self.block_id}, "
                 f"ref_cnt={self.ref_cnt}, "
-                f"_block_hash_key={self._block_hash_key!r}, "
+                f"_block_hash_with_group_id={self._block_hash_with_group_id!r}, "
                 f"prev_free_block={prev_block_id}, "
                 f"next_free_block={next_block_id})")
 

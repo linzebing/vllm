@@ -14,9 +14,16 @@ from vllm.sampling_params import SamplingParams
 from vllm.utils import sha256, sha256_cbor_64bit
 from vllm.v1.core.block_pool import BlockPool
 from vllm.v1.core.kv_cache_manager import KVCacheManager, Request
-from vllm.v1.core.kv_cache_utils import (BlockHashKey, KVCacheBlock,
-                                         get_request_block_hasher,
-                                         hash_block_tokens, init_none_hash)
+from vllm.v1.core.kv_cache_utils import (
+    BlockHash,
+    BlockHashWithGroupId,
+    KVCacheBlock,
+    get_request_block_hasher,
+    hash_block_tokens,
+    init_none_hash,
+    make_block_hash_with_group_id,
+    split_block_hash_with_group_id,
+)
 from vllm.v1.kv_cache_interface import (FullAttentionSpec, KVCacheConfig,
                                         KVCacheGroupSpec, SlidingWindowSpec)
 
@@ -130,15 +137,17 @@ def test_prefill(hash_fn):
         block_tokens = tuple(all_token_ids[(block_id - 1) * 16:block_id * 16])
         block_hash = hash_block_tokens(hash_fn, parent_block_hash,
                                        block_tokens)
-        blk_hash_key = manager.block_pool.blocks[block_id].block_hash_key
-        assert blk_hash_key is not None
-        assert blk_hash_key[0] == block_hash
+        blk_hash_with_group_id = (
+            manager.block_pool.blocks[block_id].block_hash_with_group_id)
+        assert blk_hash_with_group_id is not None
+        assert split_block_hash_with_group_id(
+            blk_hash_with_group_id)[0] == block_hash
         assert manager.block_pool.blocks[block_id].ref_cnt == 1
         parent_block_hash = block_hash
 
     # Check partial block metadata
     for block_id in (4, ):
-        assert manager.block_pool.blocks[block_id].block_hash_key is None
+        assert manager.block_pool.blocks[block_id].block_hash_with_group_id is None
         assert manager.block_pool.blocks[block_id].ref_cnt == 1
 
     # Cache hit in the common prefix when the original block is still in use.
@@ -255,15 +264,17 @@ def test_prefill_hybrid_model():
         block_hash = hash_block_tokens(hash_fn, parent_block_hash,
                                        block_tokens)
         for block_id in block_ids:
-            blk_hash_key = manager.block_pool.blocks[block_id].block_hash_key
-            assert blk_hash_key is not None
-            assert blk_hash_key[0] == block_hash
+            blk_hash_with_group_id = (
+                manager.block_pool.blocks[block_id].block_hash_with_group_id)
+            assert blk_hash_with_group_id is not None
+            assert split_block_hash_with_group_id(
+                blk_hash_with_group_id)[0] == block_hash
             assert manager.block_pool.blocks[block_id].ref_cnt == 1
         parent_block_hash = block_hash
 
     # Check partial block metadata
     for block_id in (4, 8, 12):
-        assert manager.block_pool.blocks[block_id].block_hash_key is None
+        assert manager.block_pool.blocks[block_id].block_hash_with_group_id is None
         assert manager.block_pool.blocks[block_id].ref_cnt == 1
 
     # Cache hit in the common prefix
@@ -313,28 +324,28 @@ def test_prefill_hybrid_model():
 
     # Evict the blocks outside sliding window, does not affect the hit length.
     test_partial_request_hit("2", [
-        BlockHashKey((block_hashes[0], 1)),
-        BlockHashKey((block_hashes[0], 2))
+        make_block_hash_with_group_id(block_hashes[0], 1),
+        make_block_hash_with_group_id(block_hashes[0], 2)
     ], 3)
 
     # Evict the first block of full attention, makes total cache miss.
-    test_partial_request_hit("3", [BlockHashKey((block_hashes[0], 0))], 0)
+    test_partial_request_hit("3", [make_block_hash_with_group_id(block_hashes[0], 0)], 0)
 
     # Evict the last block of all layers, reduces the hit length to 2.
     test_partial_request_hit("4", [
-        BlockHashKey((block_hashes[2], 0)),
-        BlockHashKey((block_hashes[2], 1)),
-        BlockHashKey((block_hashes[2], 2)),
+        make_block_hash_with_group_id(block_hashes[2], 0),
+        make_block_hash_with_group_id(block_hashes[2], 1),
+        make_block_hash_with_group_id(block_hashes[2], 2),
     ], 2)
 
     # Evict the last block of full attention, reduces the hit length to 2.
-    test_partial_request_hit("5", [BlockHashKey((block_hashes[2], 0))], 2)
+    test_partial_request_hit("5", [make_block_hash_with_group_id(block_hashes[2], 0)], 2)
 
     # Evict the last block of sliding window, reduces the hit length to 2.
-    test_partial_request_hit("6", [BlockHashKey((block_hashes[2], 1))], 2)
+    test_partial_request_hit("6", [make_block_hash_with_group_id(block_hashes[2], 1)], 2)
 
     # Evict the last block of sliding window, reduces the hit length to 2.
-    test_partial_request_hit("7", [BlockHashKey((block_hashes[2], 2))], 2)
+    test_partial_request_hit("7", [make_block_hash_with_group_id(block_hashes[2], 2)], 2)
 
     # Evict different set of blocks for full attention and sliding window makes
     # total cache miss.
@@ -342,9 +353,9 @@ def test_prefill_hybrid_model():
     # The cache hit length of sliding window is 2 * block_size.
     # Then it is cache miss as the two type of layers have different hit length.
     test_partial_request_hit("8", [
-        BlockHashKey((block_hashes[2], 0)),
-        BlockHashKey((block_hashes[0], 0)),
-        BlockHashKey((block_hashes[0], 1)),
+        make_block_hash_with_group_id(block_hashes[2], 0),
+        make_block_hash_with_group_id(block_hashes[0], 0),
+        make_block_hash_with_group_id(block_hashes[0], 1),
     ], 0)
 
 
@@ -385,7 +396,7 @@ def test_prefill_plp():
                                     len(computed_blocks.blocks[0]) * 16,
                                     computed_blocks)
     assert blocks.get_block_ids() == ([1, 2, 3, 4], )
-    req0_block_hashes = [b.block_hash_key for b in blocks.blocks[0]]
+    req0_block_hashes = [b.block_hash_with_group_id for b in blocks.blocks[0]]
 
     # Check full block metadata
     parent_block_hash = None
@@ -393,15 +404,17 @@ def test_prefill_plp():
         block_tokens = tuple(all_token_ids[(block_id - 1) * 16:block_id * 16])
         block_hash = hash_block_tokens(hash_fn, parent_block_hash,
                                        block_tokens)
-        blk_hash_key = manager.block_pool.blocks[block_id].block_hash_key
-        assert blk_hash_key is not None
-        assert blk_hash_key[0] == block_hash
+        blk_hash_with_group_id = (
+            manager.block_pool.blocks[block_id].block_hash_with_group_id)
+        assert blk_hash_with_group_id is not None
+        assert split_block_hash_with_group_id(
+            blk_hash_with_group_id)[0] == block_hash
         assert manager.block_pool.blocks[block_id].ref_cnt == 1
         parent_block_hash = block_hash
 
     # Check partial block metadata
     for block_id in (4, ):
-        assert manager.block_pool.blocks[block_id].block_hash_key is None
+        assert manager.block_pool.blocks[block_id].block_hash_with_group_id is None
         assert manager.block_pool.blocks[block_id].ref_cnt == 1
 
     # Request #1 is a non-prompt-logprobs request:
@@ -457,7 +470,7 @@ def test_prefill_plp():
                                     computed_blocks)
     block_ids = blocks.get_block_ids()
     # Duplicate cached blocks have different ids but same hashes vs request #0
-    assert [b.block_hash_key for b in blocks.blocks[0]] == req0_block_hashes
+    assert [b.block_hash_with_group_id for b in blocks.blocks[0]] == req0_block_hashes
     assert block_ids != ([1, 2, 3, 4], )
 
     # Request #2 block hashes are valid since request #0 hashes are.
@@ -501,7 +514,7 @@ def test_decode():
                                         computed_blocks)
     assert new_blocks is not None and len(new_blocks.blocks[0]) == 0
     assert manager.coordinator.single_type_managers[0].req_to_blocks[
-        req0.request_id][-1].block_hash_key is None
+        req0.request_id][-1].block_hash_with_group_id is None
 
     # Append slots with allocating a new block.
     req0.num_computed_tokens = 59
@@ -514,9 +527,9 @@ def test_decode():
                                         computed_blocks)
     assert new_blocks is not None and len(new_blocks.blocks[0]) == 1
     assert manager.coordinator.single_type_managers[0].req_to_blocks[
-        req0.request_id][-2].block_hash_key is not None
+        req0.request_id][-2].block_hash_with_group_id is not None
     assert manager.coordinator.single_type_managers[0].req_to_blocks[
-        req0.request_id][-1].block_hash_key is None
+        req0.request_id][-1].block_hash_with_group_id is None
 
 
 def test_evict():
@@ -611,7 +624,7 @@ def test_hash_block_correct_reuse():
     assert len(blocks.blocks[0]) == 1
 
     assert manager.block_pool.blocks[blocks.blocks[0]
-                                     [0].block_id].block_hash_key is None
+                                     [0].block_id].block_hash_with_group_id is None
 
 
 def test_computed_blocks_not_evicted():
@@ -749,7 +762,7 @@ def test_cache_blocks(hash_fn):
     )
 
     assert len(block_pool.cached_block_hash_to_block) == 2
-    assert all([block.block_hash_key is not None for block in blocks])
+    assert all([block.block_hash_with_group_id is not None for block in blocks])
 
     # Test that blocks that don't start from the beginning are cached correctly.
     blocks += [KVCacheBlock(block_id=2)]
@@ -762,7 +775,7 @@ def test_cache_blocks(hash_fn):
         kv_cache_group_id=0,
     )
     assert len(block_pool.cached_block_hash_to_block) == 3
-    assert blocks[0].block_hash_key is not None
+    assert blocks[0].block_hash_with_group_id is not None
 
 
 def test_cache_blocks_multi_group():
@@ -791,7 +804,7 @@ def test_cache_blocks_multi_group():
     )
     assert len(block_pool.cached_block_hash_to_block) == 2
     assert len(req.block_hashes) == 3
-    assert all([block.block_hash_key is not None for block in blocks])
+    assert all([block.block_hash_with_group_id is not None for block in blocks])
 
     # Cache the blocks for group 1.
     blocks = [KVCacheBlock(block_id=i) for i in range(3)]
@@ -805,7 +818,7 @@ def test_cache_blocks_multi_group():
     )
     assert len(block_pool.cached_block_hash_to_block) == 5
     assert len(req.block_hashes) == 3
-    assert all([block.block_hash_key is not None for block in blocks])
+    assert all([block.block_hash_with_group_id is not None for block in blocks])
 
     # Block hash 0: hit for group 0 and 1
     # Block hash 1: hit for group 0 and 1
@@ -1071,8 +1084,10 @@ def test_reset_prefix_cache():
 
     assert manager.reset_prefix_cache()
     assert not manager.block_pool.cached_block_hash_to_block
-    assert all(
-        [blk.block_hash_key is None for blk in manager.block_pool.blocks])
+    assert all([
+        blk.block_hash_with_group_id is None
+        for blk in manager.block_pool.blocks
+    ])
 
 
 def test_prefix_cache_stats_disabled():
@@ -1102,9 +1117,9 @@ def test_prefix_cache_stats_disabled():
 
 def test_maybe_evict_cached_block():
     pool = BlockPool(num_gpu_blocks=4, enable_caching=True)
-    block_hash0 = BlockHashKey((b"10", 0))
-    block_hash1 = BlockHashKey((b"20", 0))
-    block_hash2 = BlockHashKey((b"30", 0))
+    block_hash0 = make_block_hash_with_group_id(BlockHash(b"10"), 0)
+    block_hash1 = make_block_hash_with_group_id(BlockHash(b"20"), 0)
+    block_hash2 = make_block_hash_with_group_id(BlockHash(b"30"), 0)
     block_hashes = [
         block_hash0,
         block_hash1,
@@ -1114,9 +1129,10 @@ def test_maybe_evict_cached_block():
     ]
     assert len(pool.blocks) == len(block_hashes)
     # Manually add all blocks to cached_blocks
-    for block, block_hash_key in zip(pool.blocks, block_hashes):
-        block.block_hash_key = block_hash_key
-        pool.cached_block_hash_to_block[block_hash_key][block.block_id] = block
+    for block, block_hash_with_group_id in zip(pool.blocks, block_hashes):
+        block.block_hash_with_group_id = block_hash_with_group_id
+        pool.cached_block_hash_to_block[block_hash_with_group_id][
+            block.block_id] = block
 
     block0, block1, block2, block3 = pool.blocks
     assert pool.cached_block_hash_to_block == {
@@ -1323,7 +1339,7 @@ def test_eagle_with_sliding_window():
     assert manager.block_pool.get_cached_block(
         block_hash_first_block, kv_cache_group_ids=[0]) is not None
     manager.block_pool.cached_block_hash_to_block.pop(
-        BlockHashKey((block_hash_first_block, 0)))
+        make_block_hash_with_group_id(block_hash_first_block, 0))
 
     # New request
     req_after_evict = make_request("partial_eagle_after_evict", token_ids,

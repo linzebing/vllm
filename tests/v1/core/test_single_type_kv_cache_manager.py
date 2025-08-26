@@ -6,7 +6,9 @@ import random
 import torch
 
 from vllm.v1.core.block_pool import BlockPool
-from vllm.v1.core.kv_cache_utils import BlockHash, BlockHashKey, KVCacheBlock
+from vllm.v1.core.kv_cache_utils import (BlockHash, BlockHashWithGroupId,
+                                         KVCacheBlock,
+                                         make_block_hash_with_group_id)
 from vllm.v1.core.single_type_kv_cache_manager import (
     ChunkedLocalAttentionManager, SlidingWindowManager)
 from vllm.v1.kv_cache_interface import (ChunkedLocalAttentionSpec,
@@ -52,8 +54,8 @@ def test_chunked_local_attention_possible_cached_prefix():
         for i, (block_hash,
                 is_cached) in enumerate(zip(block_hash_list, block_is_cached)):
             if is_cached:
-                block_pool.cached_block_hash_to_block[BlockHashKey(
-                    (block_hash, 0))] = {
+                block_pool.cached_block_hash_to_block[make_block_hash_with_group_id(
+                    block_hash, 0)] = {
                         i: block_pool.blocks[i + 10],
                     }
 
@@ -117,8 +119,8 @@ def test_sliding_window_possible_cached_prefix():
         for i, (block_hash,
                 is_cached) in enumerate(zip(block_hash_list, block_is_cached)):
             if is_cached:
-                block_pool.cached_block_hash_to_block[BlockHashKey(
-                    (block_hash, 0))] = {
+                block_pool.cached_block_hash_to_block[make_block_hash_with_group_id(
+                    block_hash, 0)] = {
                         i: block_pool.blocks[i + 10],
                     }
 
