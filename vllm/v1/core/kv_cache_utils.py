@@ -6,7 +6,7 @@ import os
 from collections import defaultdict, deque
 from collections.abc import Iterable, Sequence
 from dataclasses import astuple, dataclass
-from typing import Any, Callable, NewType, Optional
+from typing import TYPE_CHECKING, Any, Callable, NewType, Optional
 
 from vllm.config import VllmConfig
 from vllm.logger import init_logger
@@ -16,7 +16,10 @@ from vllm.v1.kv_cache_interface import (ChunkedLocalAttentionSpec,
                                         KVCacheGroupSpec, KVCacheSpec,
                                         KVCacheTensor, SlidingWindowSpec)
 from vllm.v1.metrics.stats import PrefixCacheStats
-from vllm.v1.request import Request
+
+if TYPE_CHECKING:
+    # Imported only for type checking to avoid circular import at runtime.
+    from vllm.v1.request import Request
 
 # BlockHash represents the hash of a single KV-cache block used for
 # prefix caching.  Treating it as a distinct type from ``bytes`` helps
@@ -370,7 +373,7 @@ class FreeKVCacheBlockQueue:
         return ret
 
 
-def need_extra_keys(request: Request) -> bool:
+def need_extra_keys(request: "Request") -> bool:
     """Check whether the blocks allocated to this request need extra hash keys.
 
     Args:
@@ -388,7 +391,7 @@ def need_extra_keys(request: Request) -> bool:
                                                         is not None)
 
 
-def _gen_mm_extra_hash_keys(request: Request, start_token_idx: int,
+def _gen_mm_extra_hash_keys(request: "Request", start_token_idx: int,
                             end_token_idx: int,
                             start_mm_idx: int) -> tuple[list[Any], int]:
     """Generate extra keys related to MultiModal request for block hash
@@ -456,7 +459,7 @@ def _gen_mm_extra_hash_keys(request: Request, start_token_idx: int,
     return extra_keys, curr_mm_idx
 
 
-def _gen_lora_extra_hash_keys(request: Request) -> list[int]:
+def _gen_lora_extra_hash_keys(request: "Request") -> list[int]:
     """Generate extra keys related to LoRA for block hash computation.
 
     Args:
@@ -472,7 +475,7 @@ def _gen_lora_extra_hash_keys(request: Request) -> list[int]:
 
 
 def generate_block_hash_extra_keys(
-        request: Request, start_token_idx: int, end_token_idx: int,
+        request: "Request", start_token_idx: int, end_token_idx: int,
         start_mm_idx: int) -> tuple[Optional[tuple[Any, ...]], int]:
     """Generate extra keys for the block hash. The extra keys can come from
     the multi-modal inputs and request specific metadata (e.g., LoRA ID).
@@ -532,12 +535,12 @@ def hash_block_tokens(
 def get_request_block_hasher(
     block_size: int,
     caching_hash_fn: Callable[[Any], bytes],
-) -> Callable[[Request], list[BlockHash]]:
+) -> Callable[["Request"], list[BlockHash]]:
     """
     Returns a function which computes the list of un-computed block hashes
     of a request."""
 
-    def request_block_hasher(request: Request) -> list[BlockHash]:
+    def request_block_hasher(request: "Request") -> list[BlockHash]:
         start_token_idx = len(request.block_hashes) * block_size
         num_tokens = request.num_tokens
 
