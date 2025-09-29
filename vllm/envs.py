@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     VLLM_USE_MODELSCOPE: bool = False
     VLLM_RINGBUFFER_WARNING_INTERVAL: int = 60
     VLLM_NCCL_SO_PATH: Optional[str] = None
+    VLLM_USE_PYTORCH_NCCL: Optional[bool] = None
     LD_LIBRARY_PATH: Optional[str] = None
     VLLM_USE_TRITON_FLASH_ATTN: bool = True
     VLLM_V1_USE_PREFILL_DECODE_ATTENTION: bool = False
@@ -475,6 +476,13 @@ environment_variables: dict[str, Callable[[], Any]] = {
     # by PyTorch contains a bug: https://github.com/NVIDIA/nccl/issues/1234
     "VLLM_NCCL_SO_PATH":
     lambda: os.environ.get("VLLM_NCCL_SO_PATH", None),
+    # Flag to control NCCL loading method: 'true'/'1' for PyTorch NCCL,
+    # 'false'/'0' for dynamic loading, or unset for auto-detection
+    "VLLM_USE_PYTORCH_NCCL":
+    lambda: (
+        None if os.environ.get("VLLM_USE_PYTORCH_NCCL") is None
+        else os.environ.get("VLLM_USE_PYTORCH_NCCL", "").lower() in ("true", "1")
+    ),
 
     # when `VLLM_NCCL_SO_PATH` is not set, vllm will try to find the nccl
     # library file in the locations specified by `LD_LIBRARY_PATH`

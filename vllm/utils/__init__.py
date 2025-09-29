@@ -1361,10 +1361,16 @@ def find_library(lib_name: str) -> str:
 
 def find_nccl_library() -> str:
     """
+    Find the NCCL library for dynamic loading.
+
     We either use the library file specified by the `VLLM_NCCL_SO_PATH`
     environment variable, or we find the library file brought by PyTorch.
     After importing `torch`, `libnccl.so.2` or `librccl.so.1` can be
     found by `ctypes` automatically.
+
+    Note: This function is used for dynamic NCCL loading. When using
+    PyTorch's bundled NCCL (controlled by VLLM_USE_PYTORCH_NCCL), this
+    function is not called.
     """
     so_file = envs.VLLM_NCCL_SO_PATH
 

@@ -11,9 +11,12 @@ from torch.distributed import ProcessGroup, ReduceOp
 from vllm.distributed.device_communicators.pynccl_wrapper import (
     NCCLLibrary, buffer_type, cudaStream_t, ncclComm_t, ncclDataTypeEnum,
     ncclRedOpTypeEnum, ncclUniqueId)
+from vllm.distributed.device_communicators.pytorch_nccl_wrapper import (
+    PyTorchNCCLLibrary, is_pytorch_nccl_available)
 from vllm.distributed.utils import StatelessProcessGroup
 from vllm.logger import init_logger
 from vllm.utils import current_stream
+import vllm.envs as envs
 
 logger = init_logger(__name__)
 
@@ -57,6 +60,7 @@ class PyNcclCommunicator:
         group: Union[ProcessGroup, StatelessProcessGroup],
         device: Union[int, str, torch.device],
         library_path: Optional[str] = None,
+        use_pytorch_nccl: Optional[bool] = None,
     ):
         """
         Args:
@@ -65,7 +69,10 @@ class PyNcclCommunicator:
             device: the device to bind the PyNcclCommunicator to. If None,
                 it will be bound to f"cuda:{local_rank}".
             library_path: the path to the NCCL library. If None, it will
-                use the default library path.
+                use the default library path. Ignored if use_pytorch_nccl=True.
+            use_pytorch_nccl: if True, use PyTorch's bundled NCCL library.
+                If None (default), auto-detect and prefer PyTorch NCCL if available.
+                If False, use dynamic loading with library_path.
         It is the caller's responsibility to make sure each communicator
         is bind to a unique device.
         """
@@ -87,14 +94,50 @@ class PyNcclCommunicator:
             self.available = False
             self.disabled = True
             return
+        # Determine which NCCL library to use
+        # Priority: parameter > environment variable > auto-detection
+        self._use_pytorch_nccl = use_pytorch_nccl
+        if self._use_pytorch_nccl is None:
+            # Check environment variable
+            self._use_pytorch_nccl = envs.VLLM_USE_PYTORCH_NCCL
+            if self._use_pytorch_nccl is not None:
+                logger.info(f"Using environment variable VLLM_USE_PYTORCH_NCCL={envs.VLLM_USE_PYTORCH_NCCL}")
+            else:
+                # Auto-detect: prefer PyTorch NCCL if available
+                self._use_pytorch_nccl = is_pytorch_nccl_available()
+                if self._use_pytorch_nccl:
+                    logger.info("Auto-detected PyTorch NCCL availability, using PyTorch NCCL")
+                else:
+                    logger.info("PyTorch NCCL not available, falling back to dynamic loading")
+
         try:
-            self.nccl = NCCLLibrary(library_path)
-        except Exception:
-            # disable because of missing NCCL library
-            # e.g. in a non-GPU environment
-            self.available = False
-            self.disabled = True
-            return
+            if self._use_pytorch_nccl:
+                self.nccl = PyTorchNCCLLibrary()
+                logger.info("Using PyTorch bundled NCCL library")
+            else:
+                self.nccl = NCCLLibrary(library_path)
+                logger.info("Using dynamically loaded NCCL library")
+        except Exception as e:
+            # Try fallback if auto-detection was used
+            if use_pytorch_nccl is None and self._use_pytorch_nccl:
+                logger.warning("Failed to initialize PyTorch NCCL (%s), "
+                             "falling back to dynamic loading", e)
+                try:
+                    self.nccl = NCCLLibrary(library_path)
+                    self._use_pytorch_nccl = False
+                    logger.info("Successfully fell back to dynamic NCCL loading")
+                except Exception:
+                    # Both methods failed
+                    self.available = False
+                    self.disabled = True
+                    return
+            else:
+                # disable because of missing NCCL library
+                # e.g. in a non-GPU environment
+                logger.error("Failed to initialize NCCL library: %s", e)
+                self.available = False
+                self.disabled = True
+                return
 
         self.available = True
         self.disabled = False
