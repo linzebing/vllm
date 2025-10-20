@@ -727,6 +727,24 @@ class ChatCompletionRequest(OpenAIBaseModel):
             "to 256 bit). Not supported by vLLM engine V0."
         ),
     )
+    conversation_id: str | None = Field(
+        default=None,
+        description=(
+            "Unique identifier for a multi-turn conversation. If provided, "
+            "vLLM will maintain KV cache state across conversation turns, "
+            "enabling incremental decoding without recomputing previous context. "
+            "This significantly improves latency for subsequent turns in the same "
+            "conversation. Not supported by vLLM engine V0."
+        ),
+    )
+    end_conversation: bool = Field(
+        default=False,
+        description=(
+            "If true, signals that this is the final turn in the conversation "
+            "and the KV cache should be freed after processing. Only used when "
+            "conversation_id is provided. Default is False."
+        ),
+    )
     kv_transfer_params: dict[str, Any] | None = Field(
         default=None,
         description="KVTransfer parameters used for disaggregated serving.",

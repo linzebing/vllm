@@ -71,6 +71,11 @@ class EngineCoreRequest(
 
     trace_headers: Mapping[str, str] | None = None
 
+    # Conversation context for multi-turn conversations
+    conversation_id: str | None = None
+    turn_number: int = 0
+    is_conversation_end: bool = False
+
 
 class EngineCoreEventType(enum.IntEnum):
     """The type of engine core request event."""

@@ -347,6 +347,84 @@ class KVCacheManager:
         """
         self.coordinator.free(request.request_id)
 
+    def suspend_request(self, request_id: str) -> tuple[KVCacheBlocks, int, list[int]]:
+        """Suspend a request without freeing its KV cache blocks.
+
+        This is used for multi-turn conversations where we want to keep
+        the KV cache alive between turns. The blocks remain allocated
+        but the request is not actively being processed.
+
+        Args:
+            request_id: The request to suspend.
+
+        Returns:
+            A tuple containing:
+                - The KV cache blocks allocated for this request
+                - The number of computed tokens
+                - All token IDs (for building the next turn's context)
+        """
+        # Get the blocks before any potential cleanup
+        blocks = self.get_blocks(request_id)
+
+        # Touch all blocks to mark them as recently used (prevent eviction)
+        if self.enable_caching:
+            self.block_pool.touch(blocks.blocks)
+
+        # Return the necessary state for resuming the conversation
+        # Note: We DON'T free the blocks - they stay allocated
+        logger.debug(
+            f"Suspended request {request_id} with {len(blocks.blocks[0])} blocks"
+        )
+        return blocks, 0, []
+
+    def resume_request(
+        self,
+        old_request_id: str,
+        new_request: Request,
+        existing_blocks: KVCacheBlocks,
+        num_computed_tokens_from_prev_turn: int,
+    ) -> None:
+        """Resume a suspended conversation request with a new turn.
+
+        This transfers the KV cache blocks from the previous turn to the
+        new request, enabling incremental decoding without recomputing
+        the previous context.
+
+        Args:
+            old_request_id: The request ID from the previous turn.
+            new_request: The new request object for the current turn.
+            existing_blocks: The KV cache blocks from the previous turn.
+            num_computed_tokens_from_prev_turn: Number of tokens already
+                computed in previous turns.
+        """
+        # Free the old request's blocks from the coordinator's tracking
+        # (but don't actually free the physical blocks)
+        # This is a no-op if the old request was already removed
+        try:
+            self.coordinator.free(old_request_id)
+        except (KeyError, ValueError):
+            # Old request already cleaned up, that's fine
+            pass
+
+        # Register the blocks under the new request ID
+        # We need to update the coordinator's internal tracking
+        for i, manager in enumerate(self.coordinator.single_type_managers):
+            manager.req_to_blocks[new_request.request_id] = list(
+                existing_blocks.blocks[i]
+            )
+            manager.num_cached_block[new_request.request_id] = len(
+                existing_blocks.blocks[i]
+            )
+
+        # Update the request's computed token count
+        new_request.num_computed_tokens = num_computed_tokens_from_prev_turn
+
+        logger.debug(
+            f"Resumed conversation {new_request.conversation_id} "
+            f"(old request {old_request_id} -> new request {new_request.request_id}) "
+            f"with {num_computed_tokens_from_prev_turn} pre-computed tokens"
+        )
+
     def reset_prefix_cache(self) -> bool:
         """Reset prefix cache. This function may be used in RLHF
         flows to invalidate prefix caching after the weights are updated,
