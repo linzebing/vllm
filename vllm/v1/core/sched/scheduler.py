@@ -24,6 +24,7 @@ from vllm.distributed.kv_transfer.kv_connector.v1.base import KVConnectorMetadat
 from vllm.distributed.kv_transfer.kv_connector.v1.metrics import KVConnectorStats
 from vllm.logger import init_logger
 from vllm.multimodal import MULTIMODAL_REGISTRY, MultiModalRegistry
+from vllm.v1.conversation_context import ConversationContextManager
 from vllm.v1.core.encoder_cache_manager import (
     EncoderCacheManager,
     compute_encoder_budget,
@@ -189,6 +190,13 @@ class Scheduler(SchedulerInterface):
         )
         self.use_pp = self.parallel_config.pipeline_parallel_size > 1
         self.use_v2_model_runner = envs.VLLM_USE_V2_MODEL_RUNNER
+
+        # Create the conversation context manager for multi-turn conversations.
+        self.conversation_manager = ConversationContextManager(
+            enable_conversation_caching=True,
+            conversation_timeout_seconds=300.0,
+            max_active_conversations=None,
+        )
 
     def schedule(self) -> SchedulerOutput:
         # NOTE(woosuk) on the scheduling algorithm:
@@ -449,10 +457,47 @@ class Scheduler(SchedulerInterface):
 
                 # Get already-cached tokens.
                 if request.num_computed_tokens == 0:
-                    # Get locally-cached tokens.
-                    new_computed_blocks, num_new_local_computed_tokens = (
-                        self.kv_cache_manager.get_computed_blocks(request)
-                    )
+                    # Check if this is a conversation continuation first
+                    if request.is_continuation and request.conversation_id:
+                        # Resume the conversation and get existing KV cache blocks
+                        conv_state = self.conversation_manager.resume_conversation(
+                            request.conversation_id
+                        )
+                        if conv_state is not None:
+                            # Resume the request with existing blocks
+                            self.kv_cache_manager.resume_request(
+                                old_request_id=conv_state.last_request.request_id,
+                                new_request=request,
+                                existing_blocks=conv_state.kv_cache_blocks,
+                                num_computed_tokens_from_prev_turn=conv_state.num_computed_tokens,
+                            )
+                            # Update conversation manager
+                            self.conversation_manager.update_conversation(
+                                conversation_id=request.conversation_id,
+                                request=request,
+                                turn_number=request.turn_number,
+                            )
+                            # Set up for scheduling with resumed state
+                            new_computed_blocks = (
+                                self.kv_cache_manager.empty_kv_cache_blocks
+                            )
+                            num_new_local_computed_tokens = 0
+                        else:
+                            # Conversation not found, treat as new request
+                            logger.warning(
+                                f"Conversation {request.conversation_id} not found for "
+                                f"continuation request {request.request_id}. "
+                                "Treating as new request."
+                            )
+                            # Fall through to normal prefix cache lookup
+                            new_computed_blocks, num_new_local_computed_tokens = (
+                                self.kv_cache_manager.get_computed_blocks(request)
+                            )
+                    else:
+                        # Get locally-cached tokens.
+                        new_computed_blocks, num_new_local_computed_tokens = (
+                            self.kv_cache_manager.get_computed_blocks(request)
+                        )
 
                     # Get externally-cached tokens if using a KVConnector.
                     if self.connector is not None:
@@ -1316,8 +1361,61 @@ class Scheduler(SchedulerInterface):
         if self.finished_req_ids_dict is not None:
             self.finished_req_ids_dict[request.client_index].add(request_id)
 
-        if not delay_free_blocks:
-            self._free_blocks(request)
+        # Handle conversation caching
+        if (
+            request.conversation_id
+            and not request.is_conversation_end
+            and not delay_free_blocks
+        ):
+            # Suspend the request and save conversation state
+            try:
+                kv_blocks, num_computed, token_ids = (
+                    self.kv_cache_manager.suspend_request(request_id)
+                )
+                # Create or update conversation state
+                if request.turn_number == 0:
+                    # First turn, create new conversation
+                    self.conversation_manager.create_conversation(
+                        conversation_id=request.conversation_id,
+                        request=request,
+                        kv_cache_blocks=kv_blocks,
+                        num_computed_tokens=request.num_computed_tokens,
+                    )
+                else:
+                    # Subsequent turn, update existing conversation
+                    self.conversation_manager.update_conversation(
+                        conversation_id=request.conversation_id,
+                        request=request,
+                        turn_number=request.turn_number,
+                    )
+                # Suspend the conversation
+                self.conversation_manager.suspend_conversation(request.conversation_id)
+                logger.debug(
+                    f"Suspended conversation {request.conversation_id} "
+                    f"after turn {request.turn_number}"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to suspend conversation {request.conversation_id}: {e}. "
+                    "Freeing blocks normally."
+                )
+                self._free_blocks(request)
+        elif request.conversation_id and request.is_conversation_end:
+            # End the conversation and free blocks
+            conv_state = self.conversation_manager.end_conversation(
+                request.conversation_id
+            )
+            if conv_state:
+                logger.debug(
+                    f"Ended conversation {request.conversation_id} "
+                    f"after {conv_state.turn_number} turns"
+                )
+            if not delay_free_blocks:
+                self._free_blocks(request)
+        else:
+            # No conversation context, free blocks normally
+            if not delay_free_blocks:
+                self._free_blocks(request)
 
         return kv_xfer_params
 

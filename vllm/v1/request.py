@@ -44,6 +44,10 @@ class Request:
         priority: int = 0,
         trace_headers: Mapping[str, str] | None = None,
         block_hasher: Callable[["Request"], list["BlockHash"]] | None = None,
+        # Conversation context for multi-turn conversations
+        conversation_id: str | None = None,
+        turn_number: int = 0,
+        is_conversation_end: bool = False,
     ) -> None:
         self.request_id = request_id
         self.client_index = client_index
@@ -97,6 +101,13 @@ class Request:
         self.spec_token_ids: list[int] = []
         self.num_computed_tokens = 0
         self.cache_salt: str | None = cache_salt
+
+        # Conversation context for multi-turn conversations
+        self.conversation_id: str | None = conversation_id
+        self.turn_number: int = turn_number
+        self.is_conversation_end: bool = is_conversation_end
+        # Whether this request is continuing a previous conversation
+        self.is_continuation: bool = turn_number > 0
 
         # Multi-modal related
         self.mm_features = mm_features or []
@@ -153,6 +164,9 @@ class Request:
             priority=request.priority,
             trace_headers=request.trace_headers,
             block_hasher=block_hasher,
+            conversation_id=request.conversation_id,
+            turn_number=request.turn_number,
+            is_conversation_end=request.is_conversation_end,
         )
 
     def append_output_token_ids(

@@ -1200,6 +1200,16 @@ class OpenAIServing:
         if hasattr(request, "cache_salt") and request.cache_salt is not None:
             engine_prompt["cache_salt"] = request.cache_salt
 
+        # Add conversation context fields for multi-turn conversation caching
+        if hasattr(request, "conversation_id") and request.conversation_id is not None:
+            engine_prompt["conversation_id"] = request.conversation_id
+            # Determine turn number based on conversation history
+            # For simplicity, we'll use 0 for first turn and increment for subsequent
+            # The actual turn tracking will be managed by the scheduler
+            engine_prompt["turn_number"] = 0  # Will be computed based on state
+            if hasattr(request, "end_conversation"):
+                engine_prompt["end_conversation"] = request.end_conversation
+
         return conversation, [request_prompt], [engine_prompt]
 
     async def _process_inputs(

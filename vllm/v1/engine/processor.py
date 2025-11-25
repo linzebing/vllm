@@ -522,6 +522,10 @@ class Processor:
             priority=priority,
             data_parallel_rank=data_parallel_rank,
             trace_headers=trace_headers,
+            # Conversation context fields for multi-turn conversations
+            conversation_id=decoder_inputs.get("conversation_id"),
+            turn_number=decoder_inputs.get("turn_number", 0),
+            is_conversation_end=decoder_inputs.get("end_conversation", False),
         )
 
     def _validate_model_inputs(
